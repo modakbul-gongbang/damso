@@ -5,14 +5,22 @@ import UserNotifications
 // MARK: Notification boundary
 
 protocol UserNotifying: Sendable {
-    func post(title: String, body: String)
+    func post(title: String, body: String, userInfo: [String: String])
+}
+
+extension UserNotifying {
+    func post(title: String, body: String) {
+        post(title: title, body: body, userInfo: [:])
+    }
 }
 
 /// Posts a macOS user notification. Only available from a bundled .app; a
 /// bare `swift run` or test process silently skips instead of crashing the
-/// UserNotifications framework.
+/// UserNotifications framework. `userInfo` carries routing payloads (such as
+/// the meeting stem behind a summary-completion notification) for the click
+/// delegate.
 struct SystemUserNotifier: UserNotifying {
-    func post(title: String, body: String) {
+    func post(title: String, body: String, userInfo: [String: String]) {
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
@@ -20,6 +28,7 @@ struct SystemUserNotifier: UserNotifying {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
+            content.userInfo = userInfo
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
     }

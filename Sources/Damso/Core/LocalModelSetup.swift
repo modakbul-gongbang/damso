@@ -57,15 +57,15 @@ enum LocalModelSetupState: Equatable {
     var title: String {
         switch self {
         case .unchecked, .checking:
-            "Checking local processing models"
+            Loc.tr("Checking local processing models")
         case .unavailable:
-            "Local processing models are not installed"
+            Loc.tr("Local processing models are not installed")
         case .ready:
-            "Local processing models are ready"
+            Loc.tr("Local processing models are ready")
         case .installing:
-            "Installing local processing models"
+            Loc.tr("Installing local processing models")
         case .failed:
-            "Local processing model setup failed"
+            Loc.tr("Local processing model setup failed")
         }
     }
 }

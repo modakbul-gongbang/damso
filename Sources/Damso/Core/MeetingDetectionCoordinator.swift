@@ -77,7 +77,7 @@ final class MeetingDetectionCoordinator: ObservableObject {
         self.micProbe = micProbe
         self.zoomProbe = zoomProbe
         self.tabProbes = tabProbes ?? [
-            .chrome: ChromuxTabProbe(),
+            .chrome: ChromeTabProbe(),
             .dia: ChromuxTabProbe(),
             .arc: ChromuxTabProbe(),
             .safari: SafariTabProbe(),

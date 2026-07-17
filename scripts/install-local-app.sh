@@ -55,6 +55,10 @@ if [[ -f "$resources/AppIcon.icns" ]]; then
 fi
 plutil -insert NSMicrophoneUsageDescription -string "Damso records approved meeting microphone audio locally on this Mac." "$plist"
 plutil -insert NSScreenCaptureUsageDescription -string "Damso captures approved system audio locally while recording a meeting." "$plist"
+plutil -insert NSCalendarsFullAccessUsageDescription -string "Damso adds dated meeting action items to the calendar you choose, only when you confirm them." "$plist"
+# Without this key macOS silently denies Apple Events (no prompt), which
+# breaks the AppleScript tab checks used for Chrome/Safari meeting detection.
+plutil -insert NSAppleEventsUsageDescription -string "Damso checks browser tabs for an active meeting only while that browser is using the microphone." "$plist"
 plutil -lint "$plist" >/dev/null
 
 mkdir -p "$HOME/Applications"

@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .agent_boundary import SUPPORTED_AGENTS, SUPPORTED_LANGUAGES, BoundaryResult, make_boundary
+from .agent_boundary import SUPPORTED_AGENTS, SUPPORTED_LANGUAGES, BoundaryResult, make_boundary, valid_meeting_date
 from .contracts import atomic_write_json
 from .processing import MAX_REQUEST_BYTES, ProcessingError, canonical_recording_directory
 
@@ -36,6 +36,9 @@ def execute_request(
     language = request.get("language", "ko")
     if language not in SUPPORTED_LANGUAGES:
         raise SummaryError("language must be ko or en")
+    # The date anchor for action-item due_date resolution. An absent or
+    # malformed value degrades to no anchor instead of failing the summary.
+    meeting_date = valid_meeting_date(request.get("meeting_date"))
 
     transcript_path = recording_directory / "transcript.json"
     if not transcript_path.is_file():
@@ -55,7 +58,7 @@ def execute_request(
         boundary = boundary_factory(agent, recording_directory.parent.parent)
     except FileNotFoundError:
         return {"ok": True, "status": "failed", "error_code": "agent_cli_missing"}
-    result = boundary.run_summary(transcript, language=language)
+    result = boundary.run_summary(transcript, language=language, meeting_date=meeting_date)
     return persist_result(recording_directory, result)
 
 

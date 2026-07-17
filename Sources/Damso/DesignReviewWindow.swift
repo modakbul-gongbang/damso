@@ -38,6 +38,7 @@ struct DesignReviewWindow: View {
     @State private var sourceFilter: MeetingSourceFilter = .all
     @State private var duplicatesOnly = false
     @State private var pendingDelete: MeetingRecord?
+    @State private var pendingPersonDelete: LocalPersonProfile?
     /// Meetings the user hid from the "Needs your action" block this session;
     /// they drop to the list below instead of being deleted.
     @State private var dismissedActionStems: Set<String> = []
@@ -113,6 +114,26 @@ struct DesignReviewWindow: View {
             }
         } message: {
             Text(Loc.tr("The recording, transcript, and summary are removed from this Mac. This cannot be undone."))
+        }
+        .alert(
+            String(format: Loc.tr("Delete “%@” from People?"), pendingPersonDelete?.name ?? ""),
+            isPresented: Binding(
+                get: { pendingPersonDelete != nil },
+                set: { if !$0 { pendingPersonDelete = nil } }
+            )
+        ) {
+            Button(Loc.tr("Cancel"), role: .cancel) { pendingPersonDelete = nil }
+            Button(Loc.tr("Delete"), role: .destructive) {
+                guard let person = pendingPersonDelete else { return }
+                pendingPersonDelete = nil
+                Task {
+                    if await workspace.deletePerson(person) {
+                        selectedPersonID = workspace.people.first?.id
+                    }
+                }
+            }
+        } message: {
+            Text(Loc.tr("The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back."))
         }
     }
 
@@ -611,6 +632,18 @@ struct DesignReviewWindow: View {
                             Text(Loc.tr("Accepted meeting notes about this person will appear here."))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    EditorialSection(title: Loc.tr("Delete person")) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button(Loc.tr("Delete from People..."), systemImage: "trash", role: .destructive) {
+                                pendingPersonDelete = person
+                            }
+                            .buttonStyle(.bordered)
+                            Text(Loc.tr("The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -1543,9 +1576,7 @@ struct DesignReviewWindow: View {
                             Text(Loc.tr("Action items"))
                                 .font(.damsoEyebrow)
                                 .textCase(.uppercase)
-                            ForEach(summary.actionItems, id: \.self) { item in
-                                Label(item, systemImage: "checkmark.circle")
-                            }
+                            ActionItemCalendarSection(workspace: workspace, record: record, summary: summary)
                         }
                     }
                 }
@@ -1718,6 +1749,9 @@ struct DesignReviewWindow: View {
     private func resolutionTitle(_ resolution: SpeakerResolution) -> String {
         switch resolution.action {
         case .skip: Loc.tr("Skipped")
+        // name_only shows the typed name verbatim; there is no profile to
+        // route through.
+        case .nameOnly: resolution.personName ?? Loc.tr("Confirmed")
         case .match, .new, .me: resolution.personName.map { displayPersonName($0) } ?? Loc.tr("Confirmed")
         }
     }
@@ -2037,6 +2071,24 @@ private struct PersonPickerSheet: View {
                                     .foregroundStyle(DamsoTokens.success)
                                 Text(String(format: Loc.tr("Create “%@” as a new person"), trimmedSearch))
                                     .font(.body.weight(.medium))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onSelect(trimmedSearch, .nameOnly)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "textformat")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(String(format: Loc.tr("Use “%@” as a name only"), trimmedSearch))
+                                        .font(.body.weight(.medium))
+                                    Text(Loc.tr("Labels this meeting without adding the name to People."))
+                                        .font(.damsoMonoCaption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .contentShape(Rectangle())
                         }
@@ -2596,23 +2648,42 @@ private struct MeetingRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: record.source == .local ? "laptopcomputer" : "arrow.triangle.2.circlepath")
-                .foregroundStyle(DamsoTokens.inkSecondary)
-                .frame(width: 20)
+            // Traffic-light status dot: green when done, warning when it's
+            // the user's turn, pulsing accent while a machine stage runs.
+            // (The old sync-arrows glyph read as a refresh button; the
+            // source now lives in the meta line instead.)
+            ZStack {
+                Circle()
+                    .fill(record.pillTone.color.opacity(0.18))
+                    .frame(width: 16, height: 16)
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(record.pillTone.color)
+                    .symbolEffect(.pulse, options: .repeating, isActive: record.pillTone.isAnimated)
+            }
+            .frame(width: 20)
+            .padding(.top, 3)
+            .accessibilityLabel(record.pillTitle)
             VStack(alignment: .leading, spacing: 4) {
                 Text(meetingDisplayTitle(record))
                     .font(.headline)
                     .foregroundStyle(.primary)
-                Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
+                Text(metaLine)
                     .font(.damsoMonoCaption)
                     .foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    StatusPill(title: record.pillTitle, tone: record.pillTone)
-                    if let provider = externalProviderName(record.source) {
-                        BlockChip(title: provider, block: DamsoTokens.blockLilac)
-                    }
-                    if duplicateSuspect {
-                        BlockChip(title: Loc.tr("Duplicate?"), block: DamsoTokens.blockCream)
+                // Rows carry a pill only when it says something the section
+                // header does not: a completed meeting under "Completed" is
+                // pure noise, while in-progress and needs-attention states
+                // still earn their pill. The source chip folded into the
+                // date line for the same reason.
+                if record.pillTone != .complete || duplicateSuspect {
+                    HStack(spacing: 6) {
+                        if record.pillTone != .complete {
+                            StatusPill(title: record.pillTitle, tone: record.pillTone)
+                        }
+                        if duplicateSuspect {
+                            BlockChip(title: Loc.tr("Duplicate?"), block: DamsoTokens.blockCream)
+                        }
                     }
                 }
             }
@@ -2629,6 +2700,13 @@ private struct MeetingRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Date/time with the sync source appended ("Jul 16, 2026 · Plaud"), so
+    /// the source needs no chip of its own.
+    private var metaLine: String {
+        let date = record.createdAt.formatted(date: .abbreviated, time: .shortened)
+        guard let provider = externalProviderName(record.source) else { return date }
+        return "\(date) · \(provider)"
+    }
 }
 
 @MainActor

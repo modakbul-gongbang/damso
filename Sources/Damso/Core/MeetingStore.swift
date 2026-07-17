@@ -215,6 +215,7 @@ final class MeetingStore {
     func listPeople(records: [MeetingRecord]) throws -> [LocalPersonProfile] {
         try bootstrap()
         var profiles: [String: LocalPersonProfile] = [:]
+        let deletedKeys = deletedPeopleKeys()
         let directories = try fileManager.contentsOfDirectory(at: layout.peoples, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
         for directory in directories {
             guard (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
@@ -223,6 +224,7 @@ final class MeetingStore {
             guard directory.lastPathComponent != "archive" else { continue }
             let displayName = directory.lastPathComponent.precomposedStringWithCanonicalMapping
             let key = displayName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            guard !deletedKeys.contains(key) else { continue }
             let hasVoice = fileManager.fileExists(atPath: directory.appendingPathComponent("voice.npy").path)
             let aliases = profileAliases(in: directory)
             if var existing = profiles[key] {
@@ -250,11 +252,14 @@ final class MeetingStore {
         }
 
         for record in records {
-            for resolution in record.resolutions where resolution.action != .skip {
+            // name_only labels the meeting without becoming a person; deleted
+            // people stay out even though their past confirmations remain.
+            for resolution in record.resolutions where resolution.action != .skip && resolution.action != .nameOnly {
                 guard let rawName = resolution.personName?.trimmingCharacters(in: .whitespacesAndNewlines), !rawName.isEmpty else { continue }
                 let displayName = rawName.precomposedStringWithCanonicalMapping
                 let directKey = displayName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 let key = profiles[directKey] != nil ? directKey : (aliasKeys[directKey] ?? directKey)
+                guard !deletedKeys.contains(key), !deletedKeys.contains(directKey) else { continue }
                 var profile = profiles[key] ?? LocalPersonProfile(name: displayName, meetingCount: 0, lastMeetingAt: nil, hasVoiceProfile: false)
                 profile.meetingCount += 1
                 if profile.lastMeetingAt == nil || record.createdAt > profile.lastMeetingAt! {

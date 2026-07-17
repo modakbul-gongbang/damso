@@ -8,7 +8,7 @@ private final class SpyNotifier: UserNotifying, @unchecked Sendable {
 
     var posts: [(title: String, body: String)] { lock.withLock { _posts } }
 
-    func post(title: String, body: String) {
+    func post(title: String, body: String, userInfo: [String: String]) {
         lock.withLock { _posts.append((title, body)) }
     }
 }

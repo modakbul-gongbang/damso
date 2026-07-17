@@ -1,23 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// Settings tab for External Sync: a provider list (Plaud is simply the
-/// first entry) with connect/disconnect, the sync on/off toggle, and install
+/// Pane for External Sync: a provider list (Plaud is simply the first
+/// entry) with connect/disconnect, the sync on/off toggle, and install
 /// guidance when the provider's tooling is missing (R8, R10).
 struct ExternalSyncSettingsView: View {
     @ObservedObject var sync: ExternalSyncController
 
     var body: some View {
-        Form {
-            ForEach(sync.providerStates) { provider in
-                Section(provider.displayName) {
-                    providerContent(provider)
-                }
+        ForEach(sync.providerStates) { provider in
+            SettingsGroup(title: provider.displayName) {
+                providerContent(provider)
             }
         }
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(width: 620)
         .task { await sync.refreshAccountStates() }
     }
 
@@ -25,93 +20,108 @@ struct ExternalSyncSettingsView: View {
     private func providerContent(_ provider: ExternalSyncController.ProviderViewState) -> some View {
         switch provider.accountState {
         case .notInstalled(let guidance):
-            Label(Loc.tr("The command-line tool for this service is not installed."), systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(DamsoTokens.warning)
-            Text(Loc.tr("Install Node 20 or newer, run the command below in Terminal, then check again."))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text(guidance)
-                .font(.damsoMonoCaption)
-                .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(DamsoTokens.surfaceSoft, in: RoundedRectangle(cornerRadius: DamsoTokens.radiusSM))
-            Button(Loc.tr("Check again")) {
-                Task { await sync.refreshAccountStates() }
+            VStack(alignment: .leading, spacing: 10) {
+                Label(Loc.tr("The command-line tool for this service is not installed."), systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(DamsoTokens.warning)
+                Text(Loc.tr("Install Node 20 or newer, run the command below in Terminal, then check again."))
+                    .font(.footnote)
+                    .foregroundStyle(DamsoTokens.inkSecondary)
+                HStack(spacing: DamsoTokens.spacing) {
+                    Text(guidance)
+                        .font(.damsoMonoCaption)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(DamsoTokens.surfaceSoft, in: RoundedRectangle(cornerRadius: DamsoTokens.radiusSM))
+                    Spacer(minLength: 0)
+                    Button(Loc.tr("Check again")) {
+                        Task { await sync.refreshAccountStates() }
+                    }
+                }
             }
+            .padding(.vertical, 14)
 
         case .needsLogin:
-            if provider.needsRelogin {
-                Label(Loc.tr("The sign-in expired. Connect again to resume sync."), systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(DamsoTokens.warning)
-            } else {
-                Text(Loc.tr("Connect your account to import recordings automatically."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            SettingsRow(
+                title: provider.needsRelogin
+                    ? Loc.tr("The sign-in expired. Connect again to resume sync.")
+                    : Loc.tr("Connect your account to import recordings automatically.")
+            ) {
+                connectButton(provider)
             }
-            connectButton(provider)
+            connectStatus(provider)
 
         case .connected:
             if provider.needsRelogin {
-                Label(Loc.tr("The sign-in expired. Connect again to resume sync."), systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(DamsoTokens.warning)
-                connectButton(provider)
-            } else {
-                Label(Loc.tr("Connected"), systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(DamsoTokens.success)
-                if let lastSyncAt = provider.lastSyncAt {
-                    Text(String(format: Loc.tr("Last synced %@"), lastSyncAt.formatted(date: .abbreviated, time: .shortened)))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                SettingsRow(title: Loc.tr("The sign-in expired. Connect again to resume sync.")) {
+                    connectButton(provider)
                 }
-                Toggle(Loc.tr("Sync automatically every hour"), isOn: Binding(
-                    get: { provider.syncEnabled },
-                    set: { sync.setSyncEnabled($0, providerID: provider.id) }
-                ))
-                Text(Loc.tr("New recordings from the last 7 days are imported and processed locally. Nothing is uploaded."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button(Loc.tr("Disconnect"), role: .destructive) {
-                    sync.disconnect(providerID: provider.id)
+                connectStatus(provider)
+            } else {
+                SettingsRow(
+                    title: Loc.tr("Connected"),
+                    subtitle: provider.lastSyncAt.map {
+                        String(format: Loc.tr("Last synced %@"), $0.formatted(date: .abbreviated, time: .shortened))
+                    }
+                ) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(DamsoTokens.success)
+                        Button(Loc.tr("Disconnect"), role: .destructive) {
+                            sync.disconnect(providerID: provider.id)
+                        }
+                    }
+                }
+                SettingsRow(
+                    title: Loc.tr("Sync automatically every hour"),
+                    subtitle: Loc.tr("New recordings from the last 7 days are imported and processed locally. Nothing is uploaded.")
+                ) {
+                    Toggle("", isOn: Binding(
+                        get: { provider.syncEnabled },
+                        set: { sync.setSyncEnabled($0, providerID: provider.id) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
                 }
             }
 
         case .error(let code):
-            Label(String(format: Loc.tr("The service is unavailable: %@"), code), systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(DamsoTokens.warning)
-            Button(Loc.tr("Check again")) {
-                Task { await sync.refreshAccountStates() }
+            SettingsRow(title: String(format: Loc.tr("The service is unavailable: %@"), code)) {
+                Button(Loc.tr("Check again")) {
+                    Task { await sync.refreshAccountStates() }
+                }
             }
         }
     }
 
     @ViewBuilder
     private func connectButton(_ provider: ExternalSyncController.ProviderViewState) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                sync.connect(providerID: provider.id)
-            } label: {
-                if provider.isConnecting {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(Loc.tr("Waiting for the browser sign-in..."))
-                    }
-                } else {
-                    Text(Loc.tr("Connect"))
+        Button {
+            sync.connect(providerID: provider.id)
+        } label: {
+            if provider.isConnecting {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(Loc.tr("Waiting for the browser sign-in..."))
                 }
+            } else {
+                Text(Loc.tr("Connect"))
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(provider.isConnecting)
         }
+        .buttonStyle(.borderedProminent)
+        .disabled(provider.isConnecting)
+    }
+
+    @ViewBuilder
+    private func connectStatus(_ provider: ExternalSyncController.ProviderViewState) -> some View {
         if provider.isConnecting {
-            Text(Loc.tr("A browser window opened for sign-in. This times out after 2 minutes."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            SettingsFootnote(text: Loc.tr("A browser window opened for sign-in. This times out after 2 minutes."))
         }
         if let message = provider.connectMessage {
             Text(message)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(DamsoTokens.warning)
+                .padding(.vertical, DamsoTokens.spacingXS)
         }
     }
 }

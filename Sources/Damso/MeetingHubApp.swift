@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 
 /// App-lifetime objects shared by the main window and the resident detection
 /// daemon: one workspace controller so detected recordings land in the same
@@ -10,12 +11,16 @@ final class DamsoRuntime: ObservableObject {
     let workspace: MeetingWorkspaceController
     let detection: MeetingDetectionCoordinator
     let externalSync: ExternalSyncController
+    let notificationRouter: SummaryNotificationRouter
 
     init() {
         let workspace = MeetingWorkspaceController()
         self.workspace = workspace
         detection = MeetingDetectionCoordinator(workspace: workspace)
         externalSync = ExternalSyncController(workspace: workspace)
+        notificationRouter = SummaryNotificationRouter()
+        notificationRouter.workspace = workspace
+        notificationRouter.attach()
         MeetingParticipantCaptureWiring.attach(to: detection)
         detection.startMonitoring()
         externalSync.start()
@@ -61,25 +66,14 @@ struct DamsoApp: App {
         WindowGroup("Damso", id: "main") {
             DesignReviewWindow(workspace: runtime.workspace, externalSync: runtime.externalSync)
                 .frame(minWidth: 1_120, minHeight: 720)
+                .onAppear {
+                    runtime.notificationRouter.openMainWindow = { appDelegate.openMainWindow() }
+                }
         }
         .windowResizability(.contentMinSize)
 
         Settings {
-            TabView {
-                MyProfileSettingsView()
-                    .tabItem { Label(Loc.tr("My Profile"), systemImage: "person.crop.circle") }
-                AgentSettingsView()
-                    .tabItem { Label(Loc.tr("Agent & Language"), systemImage: "sparkles") }
-                MeetingDetectionSettingsView()
-                    .tabItem { Label(Loc.tr("Meeting Detection"), systemImage: "waveform.and.person.filled") }
-                ExternalSyncSettingsView(sync: runtime.externalSync)
-                    .tabItem { Label(Loc.tr("External Sync"), systemImage: "arrow.triangle.2.circlepath") }
-                StorageRootSettingsView()
-                    .tabItem { Label(Loc.tr("Storage"), systemImage: "externaldrive") }
-                ModelSetupSettingsView()
-                    .tabItem { Label(Loc.tr("Local Models"), systemImage: "waveform.badge.magnifyingglass") }
-            }
-            .frame(minWidth: 620, minHeight: 460)
+            SettingsRootView(sync: runtime.externalSync, loginItem: loginItem)
         }
 
         MenuBarExtra {
@@ -95,6 +89,45 @@ struct DamsoApp: App {
             AppIconAssets.menuBarImage()
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Routes user-notification clicks back into the app. A summary-completion
+/// notification carries the meeting stem in its payload; clicking it brings
+/// the main window forward and selects that meeting (D-07, D-17). Foreground
+/// posts still show as banners so a completion is visible while the app is
+/// active.
+@MainActor
+final class SummaryNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
+    weak var workspace: MeetingWorkspaceController?
+    var openMainWindow: (() -> Void)?
+
+    /// The notification center only exists for a bundled .app; a bare
+    /// `swift run` or test process must not touch it (same guard as
+    /// SystemUserNotifier).
+    func attach() {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let stem = response.notification.request.content.userInfo[SummaryCalendarNotification.stemUserInfoKey] as? String
+        await MainActor.run {
+            openMainWindow?()
+            if let stem {
+                workspace?.select(stem: stem)
+            }
+        }
     }
 }
 

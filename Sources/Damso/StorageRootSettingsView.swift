@@ -14,6 +14,10 @@ final class StorageRootSettingsController: ObservableObject {
         refresh()
     }
 
+    var isHealthy: Bool {
+        statusMessage == Loc.tr("Storage root is ready.")
+    }
+
     func refresh() {
         rootPath = configuration.rootURL.path
         statusMessage = description(for: configuration.health())
@@ -53,34 +57,69 @@ final class StorageRootSettingsController: ObservableObject {
     }
 }
 
+/// Pane for the canonical store root plus the derived search index, which
+/// lives here because the index is a property of the store, not the agent.
 struct StorageRootSettingsView: View {
     @StateObject private var storage = StorageRootSettingsController()
+    @State private var isRebuildingIndex = false
+    @State private var indexMessage: String?
 
     var body: some View {
-        Form {
-            Section(Loc.tr("Local Meeting Storage")) {
-                Text(storage.rootPath)
-                    .font(.callout.monospaced())
-                    .textSelection(.enabled)
-                Text(storage.statusMessage)
-                    .foregroundStyle(storage.statusMessage == Loc.tr("Storage root is ready.") ? DamsoTokens.success : DamsoTokens.warning)
-                HStack {
+        SettingsGroup(title: Loc.tr("Local Meeting Storage")) {
+            SettingsRow(title: Loc.tr("Storage folder"), subtitle: storage.rootPath) {
+                Button(Loc.tr("Choose storage folder"), systemImage: "folder") {
+                    storage.chooseRoot()
+                }
+            }
+            SettingsRow(title: storage.statusMessage) {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(storage.isHealthy ? DamsoTokens.success : DamsoTokens.warning)
+                        .frame(width: 8, height: 8)
                     Button(Loc.tr("Check storage")) {
                         storage.refresh()
                     }
-                    Button(Loc.tr("Choose storage folder"), systemImage: "folder") {
-                        storage.chooseRoot()
-                    }
                 }
-                if storage.requiresReopen {
-                    Text(Loc.tr("Reopen Damso before starting another recording so the main window uses the selected root. Existing data was not moved."))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            }
+            if storage.requiresReopen {
+                SettingsFootnote(text: Loc.tr("Reopen Damso before starting another recording so the main window uses the selected root. Existing data was not moved."))
+            }
+        }
+
+        SettingsGroup(title: Loc.tr("Search index")) {
+            SettingsRow(
+                title: Loc.tr("Rebuild search index"),
+                subtitle: Loc.tr("The SQLite index is derived from your local meeting files and can always be rebuilt from them. Rebuilding never changes a meeting file.")
+            ) {
+                Button(isRebuildingIndex ? Loc.tr("Rebuilding...") : Loc.tr("Rebuild")) {
+                    rebuildIndex()
+                }
+                .disabled(isRebuildingIndex)
+            }
+            if let indexMessage {
+                Text(indexMessage)
+                    .font(.damsoMonoCaption)
+                    .foregroundStyle(DamsoTokens.inkSecondary)
+                    .padding(.vertical, DamsoTokens.spacingXS)
+            }
+        }
+    }
+
+    private func rebuildIndex() {
+        isRebuildingIndex = true
+        indexMessage = nil
+        let root = StorageRootConfiguration().makeStore().rootURL.path
+        Task.detached(priority: .utility) {
+            let result = Result { try LocalIndexProcessRunner.rebuild(storeRoot: root) }
+            await MainActor.run {
+                isRebuildingIndex = false
+                switch result {
+                case .success(let report):
+                    indexMessage = String(format: Loc.tr("Indexed %d meetings."), report.meetings ?? 0)
+                case .failure:
+                    indexMessage = Loc.tr("Rebuild failed. Check that Python and the store root are available.")
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(width: 620)
     }
 }

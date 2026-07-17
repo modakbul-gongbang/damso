@@ -310,22 +310,16 @@ func overlappingLocalAndPlaudRecordingsAreFlaggedAsDuplicateSuspects() {
 
 @Test
 func localizationCatalogServesKoreanByDefaultAndEnglishWhenSelected() {
-    let defaults = UserDefaults.standard
-    let previous = defaults.string(forKey: AgentPreferences.languageKey)
-    defer {
-        if let previous {
-            defaults.set(previous, forKey: AgentPreferences.languageKey)
-        } else {
-            defaults.removeObject(forKey: AgentPreferences.languageKey)
-        }
-    }
+    // Language resolution defaults to Korean; checked against an isolated
+    // defaults suite so no global state is mutated (tests run in parallel
+    // and every Loc.tr call in other suites reads the global preference).
+    let isolated = UserDefaults(suiteName: "damso-tests-language-\(UUID().uuidString)")!
+    #expect(AgentPreferences.language(isolated) == .korean)
+    isolated.set(SummaryLanguage.english.rawValue, forKey: AgentPreferences.languageKey)
+    #expect(AgentPreferences.language(isolated) == .english)
 
-    defaults.removeObject(forKey: AgentPreferences.languageKey)
-    #expect(Loc.tr("Record now") == "지금 녹음")
-
-    defaults.set(SummaryLanguage.english.rawValue, forKey: AgentPreferences.languageKey)
-    #expect(Loc.tr("Record now") == "Record now")
-
-    defaults.set(SummaryLanguage.korean.rawValue, forKey: AgentPreferences.languageKey)
-    #expect(Loc.tr("Speakers") == "화자")
+    // Catalog lookups per explicit language.
+    #expect(Loc.tr("Record now", language: .korean) == "지금 녹음")
+    #expect(Loc.tr("Record now", language: .english) == "Record now")
+    #expect(Loc.tr("Speakers", language: .korean) == "화자")
 }

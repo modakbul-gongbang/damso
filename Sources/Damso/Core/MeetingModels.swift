@@ -68,12 +68,44 @@ struct TranscriptSegment: Codable, Equatable, Sendable {
     var text: String
 }
 
+/// One structured action item as produced by the agent boundary. `dueDate` is
+/// the ISO YYYY-MM-DD calendar date resolved at summary time; nil means the
+/// agent was not confident enough to pin a date (D-08).
+struct SummaryActionItem: Codable, Equatable, Sendable {
+    var task: String
+    var owner: String?
+    var due: String?
+    var dueDate: String?
+
+    /// The same one-line composition the flattened `actionItems` strings use,
+    /// so structured rendering never changes what the user reads.
+    var displayText: String {
+        var components = [task]
+        if let owner, !owner.isEmpty { components.append("Owner: \(owner)") }
+        if let due, !due.isEmpty { components.append("Due: \(due)") }
+        return components.joined(separator: " · ")
+    }
+}
+
 struct StructuredSummary: Codable, Equatable, Sendable {
     var oneLine: String
     var keyDiscussion: [String]
     var actionItems: [String]
     var roleHints: [String: String]
     var topicSummary: String
+    /// Structured items behind the flattened `actionItems` strings. Optional
+    /// so summaries persisted before this field decode unchanged; those older
+    /// records simply have no calendar candidates until re-summarized.
+    var actions: [SummaryActionItem]? = nil
+}
+
+/// A calendar event this app created for one action item, persisted on the
+/// meeting record so the "added" state survives restarts and the same item is
+/// never added twice. Identity is (task, dueDate) within one meeting (D-14).
+struct CalendarEventLink: Codable, Equatable, Sendable {
+    var task: String
+    var dueDate: String
+    var eventID: String
 }
 
 enum SpeakerResolutionAction: String, Codable, Sendable {
@@ -81,6 +113,10 @@ enum SpeakerResolutionAction: String, Codable, Sendable {
     case new
     case me
     case skip
+    /// Labels the speaker with a typed name in this meeting only: the
+    /// transcript and participants show the name, but no People profile is
+    /// created and the name never appears in the People list.
+    case nameOnly = "name_only"
 }
 
 enum PersonNoteStatus: String, Codable, Sendable {
@@ -157,6 +193,7 @@ struct MeetingRecord: Codable, Identifiable, Equatable, Sendable {
     var resolutions: [SpeakerResolution]
     var corrections: MeetingCorrections?
     var personNotes: [PersonNoteProposal]?
+    var calendarEventLinks: [CalendarEventLink]?
 
     init(
         id: UUID = UUID(),

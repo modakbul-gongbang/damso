@@ -108,6 +108,7 @@ final class MeetingWorkspaceController: ObservableObject {
     private let capture: any RecordingCapture
     private let session: RecordingSessionController
     private let backend: any LocalProcessingBackend
+    private let notifier: any UserNotifying
     private var activeRecord: MeetingRecord?
     private var resumedSummaryStems: Set<String> = []
     private var activeProcessingStems: Set<String> = []
@@ -116,10 +117,11 @@ final class MeetingWorkspaceController: ObservableObject {
     private var suggestedStems: Set<String> = []
     private var cleanedTranscriptStems: Set<String> = []
 
-    init(store: MeetingStore? = nil, capture: any RecordingCapture = LocalRecordingCoordinator(), backend: any LocalProcessingBackend = SystemProcessingBackend()) {
+    init(store: MeetingStore? = nil, capture: any RecordingCapture = LocalRecordingCoordinator(), backend: any LocalProcessingBackend = SystemProcessingBackend(), notifier: any UserNotifying = SystemUserNotifier()) {
         self.store = store ?? StorageRootConfiguration().makeStore()
         self.capture = capture
         self.backend = backend
+        self.notifier = notifier
         session = RecordingSessionController(capture: capture)
         // Do not create the default store merely by opening the app. This keeps
         // a denied first recording attempt side-effect free while still showing
@@ -217,6 +219,11 @@ final class MeetingWorkspaceController: ObservableObject {
         isApplyingSpeakerResolution = false
         switch result {
         case .success:
+            // Confirming a profile-backed name revives it if it was deleted
+            // from People earlier (the backend just recreated the folder).
+            if let cleanedName, action == .match || action == .new || action == .me {
+                store.unmarkPersonDeleted(cleanedName)
+            }
             record.resolutions = resolutions.values.sorted { $0.speaker < $1.speaker }
             let allResolved = processingArtifacts.proposals.allSatisfy { resolutions[$0.speaker] != nil }
             let alreadySummarized = record.summary != nil
@@ -282,7 +289,8 @@ final class MeetingWorkspaceController: ObservableObject {
         let request = LocalSummaryRequest(
             recordingDirectory: recordDirectory(for: record).path,
             agent: AgentPreferences.summaryAgent(),
-            language: AgentPreferences.language()
+            language: AgentPreferences.language(),
+            meetingDate: LocalSummaryRequest.localMeetingDate(for: record.createdAt)
         )
         let result = await Task.detached(priority: .utility) { [backend] in
             Result { try backend.runSummary(request) }
@@ -308,6 +316,7 @@ final class MeetingWorkspaceController: ObservableObject {
                 state = .ready
                 recoveryAction = nil
                 scheduleIndexRebuild()
+                postCalendarCandidateNotification(for: record)
             } catch {
                 saveSummaryFailure(record, code: "summary_artifact_invalid")
             }
@@ -315,6 +324,42 @@ final class MeetingWorkspaceController: ObservableObject {
             saveSummaryFailure(record, code: response.errorCode ?? "summary_unavailable")
         case .failure:
             saveSummaryFailure(record, code: "summary_launch_failed")
+        }
+    }
+
+    /// Summary just completed: when date-resolved action items exist and the
+    /// user keeps the notification toggle on, one notification offers the
+    /// calendar candidates; clicking it routes back to this meeting (D-07).
+    private func postCalendarCandidateNotification(for record: MeetingRecord) {
+        let candidates = ActionItemCalendarPlanner.candidates(from: record.summary)
+        guard SummaryCalendarNotification.shouldNotify(
+            candidateCount: candidates.count,
+            enabled: CalendarPreferences.notificationEnabled()
+        ) else { return }
+        let content = SummaryCalendarNotification.content(meetingTitle: record.title, candidateCount: candidates.count)
+        notifier.post(
+            title: content.title,
+            body: content.body,
+            userInfo: [SummaryCalendarNotification.stemUserInfoKey: record.stem]
+        )
+    }
+
+    /// Persists calendar event links created for this meeting's action items.
+    /// Links accumulate; the (task, dueDate) identity keeps one item from
+    /// being recorded twice while re-summarized items become new candidates.
+    func appendCalendarLinks(_ links: [CalendarEventLink], stem: String) {
+        guard !links.isEmpty, var record = records.first(where: { $0.stem == stem }) else { return }
+        var merged = record.calendarEventLinks ?? []
+        for link in links where !merged.contains(where: { $0.task == link.task && $0.dueDate == link.dueDate }) {
+            merged.append(link)
+        }
+        record.calendarEventLinks = merged
+        do {
+            try store.update(record)
+            replace(record)
+            if selectedRecord?.stem == record.stem { selectedRecord = record }
+        } catch {
+            recoveryAction = Loc.tr("The calendar link could not be saved to this meeting.")
         }
     }
 
@@ -578,6 +623,21 @@ final class MeetingWorkspaceController: ObservableObject {
         if !rebuilt {
             recoveryAction = Loc.tr("Profiles merged, but the search index could not be rebuilt. Files are intact; run Rebuild index from Settings.")
         }
+        return true
+    }
+
+    /// Deletes a person from People: the profile folder is archived under
+    /// peoples/archive and the name goes on the local denylist so past
+    /// meeting confirmations stop resurfacing them. Meetings are untouched.
+    func deletePerson(_ profile: LocalPersonProfile) async -> Bool {
+        do {
+            _ = try store.deletePerson(named: profile.name, aliases: profile.aliases)
+        } catch {
+            recoveryAction = Loc.tr("The person could not be deleted. The profile is unchanged; retry after checking local storage.")
+            return false
+        }
+        people = (try? store.listPeople(records: records)) ?? people
+        scheduleIndexRebuild()
         return true
     }
 

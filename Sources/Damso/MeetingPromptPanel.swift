@@ -355,6 +355,13 @@ struct MeetingPanelCardView: View {
     }
 
     private func refreshPairing() async {
+        // Passive status only: the card must never launch the user's Chrome
+        // just because it was opened. Listing tabs is safe once the relay is
+        // connected (chromux has nothing left to launch).
+        guard await ChromuxLivePairing.status().relayConnected else {
+            pairing = .unpaired
+            return
+        }
         let data = await MeetingProbeSubprocess.run(arguments: ["chromux", "tabs", "--json"], timeoutSeconds: 5)
         if let data, let tabs = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
             pairing = .paired(tabCount: tabs.count)

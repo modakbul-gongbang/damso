@@ -17,6 +17,12 @@ class PeopleTests(unittest.TestCase):
             self.assertEqual(fields["meeting_count"], 2)
             self.assertIn("Do not change this.", body)
 
+    def test_name_only_resolution_never_creates_a_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            peoples = Path(temporary) / "Plaud" / "peoples"
+            apply_people_resolutions(peoples, {"SPEAKER_00": {"action": "name_only", "name": "게스트"}}, "2026-07-17")
+            self.assertFalse(peoples.exists())
+
     def test_slug_is_safe_for_local_profile_directory(self):
         self.assertEqual(slugify(" Kim / Partner "), "Kim-_-Partner")
 

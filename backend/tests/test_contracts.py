@@ -29,6 +29,27 @@ class ContractTests(unittest.TestCase):
             self.assertTrue(required_files_present(directory))
             self.assertIn("action: new", (directory / "resolutions.yaml").read_text(encoding="utf-8"))
 
+    def test_name_only_resolution_labels_the_transcript_without_a_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            write_phase_one(
+                directory,
+                None,
+                {
+                    "source_file": "audio.wav",
+                    "language": "ko",
+                    "model": "large-v3",
+                    "duration": 4.0,
+                    "speakers": ["SPEAKER_00"],
+                    "segments": [{"speaker": "SPEAKER_00", "start": 0, "end": 4, "text": "synthetic text"}],
+                },
+                {"version": 1, "proposals": {"SPEAKER_00": {"candidates": []}}},
+            )
+            final = apply_resolutions(directory, {"SPEAKER_00": {"action": "name_only", "name": "게스트"}})
+
+            self.assertEqual(final["segments"][0]["speaker"], "게스트")
+            self.assertIn("action: name_only", (directory / "resolutions.yaml").read_text(encoding="utf-8"))
+
     def test_invalid_resolution_never_overwrites_the_raw_transcript(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

@@ -105,13 +105,44 @@ struct SystemZoomAppMeetingProbe: ZoomAppMeetingProbing {
 
 // MARK: - Browser tab probes
 
+/// Passive chromux live-pairing status read from `chromux ps --json`: it
+/// only inspects the already-running daemon's state. This is the mandatory
+/// gate before `chromux tabs`, because `chromux tabs` force-launches the
+/// user's real Chrome to connect the relay on a cold start — a background
+/// probe or a menu bar card must never do that.
+enum ChromuxLivePairing {
+    struct Status: Equatable {
+        var relayConnected: Bool
+    }
+
+    static func status(timeoutSeconds: TimeInterval = 5) async -> Status {
+        let data = await MeetingProbeSubprocess.run(
+            arguments: ["chromux", "ps", "--json"],
+            timeoutSeconds: timeoutSeconds
+        )
+        return parse(data)
+    }
+
+    static func parse(_ data: Data?) -> Status {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profiles = root["profiles"] as? [[String: Any]],
+              let live = profiles.first(where: { ($0["profile"] as? String) == "live" })
+        else { return Status(relayConnected: false) }
+        return Status(relayConnected: (live["extension"] as? String) == "connected")
+    }
+}
+
 /// Lists the user's real browser tabs through `chromux tabs --json` (live
 /// extension pairing). Used for Chrome, and for Dia when the pairing probe
-/// confirms it.
+/// confirms it. Only queried while the live relay is already connected so
+/// the probe never launches or focuses the user's Chrome (mirrors the
+/// Safari probe's never-launch rule).
 struct ChromuxTabProbe: BrowserTabProbing {
     var timeoutSeconds: TimeInterval = 5
 
     func tabs() async -> [BrowserTabSnapshot] {
+        guard await ChromuxLivePairing.status(timeoutSeconds: timeoutSeconds).relayConnected else { return [] }
         guard let data = await MeetingProbeSubprocess.run(
             arguments: ["chromux", "tabs", "--json"],
             timeoutSeconds: timeoutSeconds
@@ -126,6 +157,56 @@ struct ChromuxTabProbe: BrowserTabProbing {
             guard let url = tab.url, !url.isEmpty else { return nil }
             return BrowserTabSnapshot(id: String(tab.tabId), title: tab.title ?? "", url: url)
         }
+    }
+}
+
+/// Lists Chrome tabs via AppleScript (Automation permission), so Meet/Zoom
+/// tab detection works out of the box without chromux pairing. Only queried
+/// while Chrome is already running so the probe never launches it. Tab ids
+/// carry an "applescript:" prefix because they are not chromux tab ids and
+/// must never be used for capture attachment.
+struct ChromeAppleScriptTabProbe: BrowserTabProbing {
+    static let idPrefix = "applescript:"
+    var timeoutSeconds: TimeInterval = 5
+
+    func tabs() async -> [BrowserTabSnapshot] {
+        let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.google.Chrome" }
+        guard running else { return [] }
+        let script = """
+        set out to ""
+        tell application "Google Chrome"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set out to out & (URL of t) & "\\t" & (title of t) & linefeed
+                end repeat
+            end repeat
+        end tell
+        return out
+        """
+        guard let data = await MeetingProbeSubprocess.run(
+            arguments: ["osascript", "-e", script],
+            timeoutSeconds: timeoutSeconds
+        ), let output = String(data: data, encoding: .utf8) else { return [] }
+        return output.split(separator: "\n").enumerated().compactMap { index, line in
+            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let url = parts.first.map(String.init), url.hasPrefix("http") else { return nil }
+            let title = parts.count > 1 ? String(parts[1]) : ""
+            return BrowserTabSnapshot(id: "\(Self.idPrefix)\(index)", title: title, url: url)
+        }
+    }
+}
+
+/// Chrome tab listing with chromux as the primary channel and AppleScript as
+/// the fallback: pairing stays optional (detection works either way) and
+/// upgrades detection with capture-capable tab ids when connected.
+struct ChromeTabProbe: BrowserTabProbing {
+    var primary: any BrowserTabProbing = ChromuxTabProbe()
+    var fallback: any BrowserTabProbing = ChromeAppleScriptTabProbe()
+
+    func tabs() async -> [BrowserTabSnapshot] {
+        let viaChromux = await primary.tabs()
+        if !viaChromux.isEmpty { return viaChromux }
+        return await fallback.tabs()
     }
 }
 

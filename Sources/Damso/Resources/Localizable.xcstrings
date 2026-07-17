@@ -33,6 +33,22 @@
         }
       }
     },
+    "%@ summary is ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ summary is ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 요약 완료"
+          }
+        }
+      }
+    },
     "%@ sync failed": {
       "localizations": {
         "en": {
@@ -61,6 +77,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 동기화 완료"
+          }
+        }
+      }
+    },
+    "%d action items have dates and can be added to your calendar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d action items have dates and can be added to your calendar."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "날짜가 있는 액션 아이템 %d건을 캘린더에 추가할 수 있습니다."
           }
         }
       }
@@ -321,6 +353,22 @@
         }
       }
     },
+    "Action item calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action item calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액션 아이템 캘린더"
+          }
+        }
+      }
+    },
     "Action items": {
       "localizations": {
         "en": {
@@ -333,6 +381,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "액션 아이템"
+          }
+        }
+      }
+    },
+    "Add %d selected to Calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %d selected to Calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 %d건 캘린더에 추가"
           }
         }
       }
@@ -365,6 +429,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "더 많은 미팅을 보려면 검색어나 필터를 조정하세요."
+          }
+        }
+      }
+    },
+    "After a summary finishes with dated action items, a notification opens that meeting. The in-summary add section stays available either way.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a summary finishes with dated action items, a notification opens that meeting. The in-summary add section stays available either way."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "날짜 있는 액션 아이템과 함께 요약이 끝나면 알림이 해당 회의를 엽니다. 알림을 꺼도 요약 화면의 추가 섹션은 유지됩니다."
           }
         }
       }
@@ -497,6 +577,22 @@
         }
       }
     },
+    "Allow Calendar access to record dated action items as all-day events.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Calendar access to record dated action items as all-day events."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 접근을 허용하면 날짜가 있는 액션 아이템을 종일 이벤트로 기록합니다."
+          }
+        }
+      }
+    },
     "Allow Microphone access in System Settings, then try again.": {
       "localizations": {
         "en": {
@@ -541,6 +637,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "시스템 설정에서 화면 기록 접근을 허용한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Allow access": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow access"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근 허용"
           }
         }
       }
@@ -689,6 +801,54 @@
         }
       }
     },
+    "Calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더"
+          }
+        }
+      }
+    },
+    "Calendar access": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar access"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 접근"
+          }
+        }
+      }
+    },
+    "Calendar access is off, so action items cannot be added. Allow Calendar access for Damso in System Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar access is off, so action items cannot be added. Allow Calendar access for Damso in System Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 접근 권한이 꺼져 있어 액션 아이템을 추가할 수 없습니다. 시스템 설정에서 Damso의 캘린더 접근을 허용해 주세요."
+          }
+        }
+      }
+    },
     "Cancel": {
       "localizations": {
         "en": {
@@ -797,6 +957,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "chromux 페어링 확인 중..."
+          }
+        }
+      }
+    },
+    "Checking local processing models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking local processing models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델 확인 중"
+          }
+        }
+      }
+    },
+    "Choose a calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 선택"
           }
         }
       }
@@ -1169,6 +1361,22 @@
         }
       }
     },
+    "Could not add this item. Retry below.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not add this item. Retry below."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목을 추가하지 못했습니다. 아래에서 다시 시도해 주세요."
+          }
+        }
+      }
+    },
     "Create person": {
       "localizations": {
         "en": {
@@ -1233,6 +1441,22 @@
         }
       }
     },
+    "Damso only adds events. Edit or delete them in your calendar; re-summarizing never changes existing events.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso only adds events. Edit or delete them in your calendar; re-summarizing never changes existing events."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso는 이벤트 추가까지만 담당합니다. 수정과 삭제는 캘린더에서 직접 하고, 재요약해도 기존 이벤트는 바뀌지 않습니다."
+          }
+        }
+      }
+    },
     "Damso will create and use its canonical Plaud folder structure inside this local folder. Existing data is never moved automatically.": {
       "localizations": {
         "en": {
@@ -1245,6 +1469,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Damso가 이 로컬 폴더 안에 canonical Plaud 폴더 구조를 만들고 사용합니다. 기존 데이터는 자동으로 이동되지 않습니다."
+          }
+        }
+      }
+    },
+    "Dated action items are added to this calendar as all-day events. Pick your Google account's calendar so they appear in Google Calendar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dated action items are added to this calendar as all-day events. Pick your Google account's calendar so they appear in Google Calendar."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "날짜가 있는 액션 아이템이 이 캘린더에 종일 이벤트로 추가됩니다. 구글 계정의 캘린더를 선택하면 구글 캘린더에서 보입니다."
           }
         }
       }
@@ -1297,6 +1537,22 @@
         }
       }
     },
+    "Delete from People...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete from People..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People에서 삭제..."
+          }
+        }
+      }
+    },
     "Delete meeting": {
       "localizations": {
         "en": {
@@ -1309,6 +1565,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "미팅 삭제"
+          }
+        }
+      }
+    },
+    "Delete person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 삭제"
+          }
+        }
+      }
+    },
+    "Delete “%@” from People?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@” from People?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People에서 “%@”을(를) 삭제할까요?"
           }
         }
       }
@@ -1649,6 +1937,38 @@
         }
       }
     },
+    "From meeting: %@ (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From meeting: %@ (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회의: %@ (%@)"
+          }
+        }
+      }
+    },
+    "General": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반"
+          }
+        }
+      }
+    },
     "Generate summary": {
       "localizations": {
         "en": {
@@ -1793,6 +2113,22 @@
         }
       }
     },
+    "Installing local processing models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing local processing models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델 설치 중"
+          }
+        }
+      }
+    },
     "Just synced · %d new": {
       "localizations": {
         "en": {
@@ -1901,6 +2237,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "주요 발화"
+          }
+        }
+      }
+    },
+    "Labels this meeting without adding the name to People.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels this meeting without adding the name to People."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People에 추가하지 않고 이 미팅에만 이름을 붙입니다."
           }
         }
       }
@@ -2061,6 +2413,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "로컬 처리가 실행 중입니다. 다음 단계는 자동으로 시작됩니다."
+          }
+        }
+      }
+    },
+    "Local processing model setup failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local processing model setup failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델 설치에 실패했습니다"
+          }
+        }
+      }
+    },
+    "Local processing models are not installed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local processing models are not installed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델이 설치되어 있지 않습니다"
+          }
+        }
+      }
+    },
+    "Local processing models are ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local processing models are ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델이 준비되었습니다"
           }
         }
       }
@@ -2237,6 +2637,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "미팅 감지"
+          }
+        }
+      }
+    },
+    "Meeting detection and recording work without pairing (Chrome tabs are read via Automation permission). Pairing the chromux extension only adds participant names and Meet speaker samples: run `chromux pair` in a terminal, approve the extension, then check again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting detection and recording work without pairing (Chrome tabs are read via Automation permission). Pairing the chromux extension only adds participant names and Meet speaker samples: run `chromux pair` in a terminal, approve the extension, then check again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지와 녹음은 페어링 없이도 동작합니다 (Chrome 탭은 자동화 권한으로 읽습니다). chromux 확장을 페어링하면 참석자 이름과 Meet 발화자 샘플이 추가로 수집됩니다. 터미널에서 `chromux pair`를 실행해 확장을 승인한 뒤 다시 확인하세요."
           }
         }
       }
@@ -2881,6 +3297,22 @@
         }
       }
     },
+    "No writable calendar was found. Add your Google account in System Settings > Internet Accounts (with Calendars enabled) so events sync to Google Calendar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No writable calendar was found. Add your Google account in System Settings > Internet Accounts (with Calendars enabled) so events sync to Google Calendar."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓸 수 있는 캘린더가 없습니다. 시스템 설정 > 인터넷 계정에서 구글 계정을 추가하고 캘린더를 켜면 이벤트가 구글 캘린더로 동기화됩니다."
+          }
+        }
+      }
+    },
     "Not connected · open Settings": {
       "localizations": {
         "en": {
@@ -2961,6 +3393,38 @@
         }
       }
     },
+    "Notifications": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        }
+      }
+    },
+    "Notify when a summary has calendar candidates": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when a summary has calendar candidates"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약에 캘린더 후보가 있으면 알림"
+          }
+        }
+      }
+    },
     "OK": {
       "localizations": {
         "en": {
@@ -2993,6 +3457,22 @@
         }
       }
     },
+    "Open Internet Accounts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Internet Accounts"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 계정 설정 열기"
+          }
+        }
+      }
+    },
     "Open Speakers": {
       "localizations": {
         "en": {
@@ -3005,6 +3485,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "화자 탭 열기"
+          }
+        }
+      }
+    },
+    "Open System Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
           }
         }
       }
@@ -3069,6 +3565,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "개요"
+          }
+        }
+      }
+    },
+    "Owner: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owner: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "담당: %@"
           }
         }
       }
@@ -3581,6 +4093,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "요약 준비 완료"
+          }
+        }
+      }
+    },
+    "Rebuild": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuild"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재구축"
           }
         }
       }
@@ -4513,6 +5041,22 @@
         }
       }
     },
+    "Storage folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage folder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 폴더"
+          }
+        }
+      }
+    },
     "Storage root has insufficient free space (%d bytes available).": {
       "localizations": {
         "en": {
@@ -4849,6 +5393,22 @@
         }
       }
     },
+    "System": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        }
+      }
+    },
     "System audio could not start safely. Keep local files if any were captured, then retry.": {
       "localizations": {
         "en": {
@@ -4861,6 +5421,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "시스템 오디오를 안전하게 시작하지 못했습니다. 캡처된 로컬 파일이 있으면 보존한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "Target calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 캘린더"
           }
         }
       }
@@ -4925,6 +5501,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "별칭이 삭제되지 않았습니다. 로컬 처리 진단을 확인한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "The calendar link could not be saved to this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The calendar link could not be saved to this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 기록 상태를 이 회의에 저장하지 못했습니다."
           }
         }
       }
@@ -5069,6 +5661,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "원본 로컬 오디오가 없어 이 미팅을 재처리할 수 없습니다."
+          }
+        }
+      }
+    },
+    "The person could not be deleted. The profile is unchanged; retry after checking local storage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The person could not be deleted. The profile is unchanged; retry after checking local storage."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물을 삭제하지 못했습니다. 프로필은 그대로이니 로컬 저장소를 확인한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 폴더는 먼저 peoples/archive에 보관되고, 이 인물은 People 목록에서 사라집니다. 지난 미팅에는 이름이 텍스트로 남으며, 같은 이름으로 다시 화자를 확인하면 인물이 되살아납니다."
           }
         }
       }
@@ -5313,6 +5937,22 @@
         }
       }
     },
+    "This item is already on your calendar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This item is already on your calendar."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 캘린더에 추가된 항목입니다."
+          }
+        }
+      }
+    },
     "This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data.": {
       "localizations": {
         "en": {
@@ -5505,6 +6145,22 @@
         }
       }
     },
+    "Use this calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 캘린더 사용"
+          }
+        }
+      }
+    },
     "Use this folder": {
       "localizations": {
         "en": {
@@ -5517,6 +6173,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 폴더 사용"
+          }
+        }
+      }
+    },
+    "Use “%@” as a name only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use “%@” as a name only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 이름만 사용"
           }
         }
       }
@@ -5901,6 +6573,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” 프로필은 이관 전에 peoples/archive에 보관됩니다. 복원은 폴더를 되돌린 뒤 인덱스를 재구축하면 됩니다."
+          }
+        }
+      }
+    },
+    "✓ Added": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ Added"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ 추가됨"
           }
         }
       }

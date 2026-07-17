@@ -29,8 +29,14 @@ enum Loc {
     private static let table: [String: [String: String]] = loadCatalog()
 
     static func tr(_ key: String) -> String {
-        let language = AgentPreferences.language().rawValue
-        if let value = table[key]?[language], !value.isEmpty {
+        tr(key, language: AgentPreferences.language())
+    }
+
+    /// Explicit-language lookup: lets tests exercise the catalog without
+    /// mutating the process-global language preference, which other code
+    /// reads concurrently.
+    static func tr(_ key: String, language: SummaryLanguage) -> String {
+        if let value = table[key]?[language.rawValue], !value.isEmpty {
             return value
         }
         return key

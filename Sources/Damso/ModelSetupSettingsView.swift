@@ -5,32 +5,18 @@ struct ModelSetupSettingsView: View {
     @State private var showInstallationConfirmation = false
 
     var body: some View {
-        Form {
-            Section(Loc.tr("Local Processing Models")) {
-                Label(setup.state.title, systemImage: statusSymbol)
-                    .foregroundStyle(statusColor)
-                    .accessibilityLabel(setup.state.title)
-
-                Text(Loc.tr("Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                if case .failed(let code) = setup.state {
-                    Text(String(format: Loc.tr("Setup stopped: %@. Check your network and local Python setup, then try again."), code))
-                        .foregroundStyle(DamsoTokens.critical)
-                }
-
-                if case .unavailable(let code) = setup.state {
-                    Text(String(format: Loc.tr("Not ready: %@."), code))
-                        .foregroundStyle(DamsoTokens.warning)
-                }
-
-                HStack {
+        SettingsGroup(title: Loc.tr("Local Processing Models")) {
+            SettingsRow(
+                title: setup.state.title,
+                subtitle: Loc.tr("Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.")
+            ) {
+                HStack(spacing: 12) {
+                    Image(systemName: statusSymbol)
+                        .foregroundStyle(statusColor)
                     Button(Loc.tr("Check status")) {
                         setup.refresh()
                     }
                     .disabled(isBusy)
-
                     Button(Loc.tr("Install local models"), systemImage: "arrow.down.circle") {
                         showInstallationConfirmation = true
                     }
@@ -38,10 +24,22 @@ struct ModelSetupSettingsView: View {
                     .disabled(isBusy || isReady)
                 }
             }
+            .accessibilityElement(children: .combine)
+
+            if case .failed(let code) = setup.state {
+                Text(String(format: Loc.tr("Setup stopped: %@. Check your network and local Python setup, then try again."), code))
+                    .font(.footnote)
+                    .foregroundStyle(DamsoTokens.critical)
+                    .padding(.vertical, DamsoTokens.spacingXS)
+            }
+
+            if case .unavailable(let code) = setup.state {
+                Text(String(format: Loc.tr("Not ready: %@."), code))
+                    .font(.footnote)
+                    .foregroundStyle(DamsoTokens.warning)
+                    .padding(.vertical, DamsoTokens.spacingXS)
+            }
         }
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(width: 620)
         .task { setup.refresh() }
         .confirmationDialog(
             Loc.tr("Install local processing models?"),

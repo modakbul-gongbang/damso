@@ -16,6 +16,7 @@ from damso.agent_boundary import (
     extract_json_object,
     make_boundary,
     normalize_summary,
+    valid_meeting_date,
 )
 
 
@@ -27,6 +28,13 @@ ACCEPTED = {
     "key_points": ["point"],
     "action_items": [{"task": "do", "owner": None, "due": None}],
     "person_notes": [{"name": "Kim", "note": "Owns the launch checklist."}],
+}
+
+# What normalize_summary emits for ACCEPTED: the legacy item shape gains an
+# explicit due_date null so downstream consumers always see the field.
+NORMALIZED = {
+    **ACCEPTED,
+    "action_items": [{"task": "do", "owner": None, "due": None, "due_date": None}],
 }
 
 
@@ -67,6 +75,40 @@ class SharedContractTests(unittest.TestCase):
             normalize_summary({**ACCEPTED, "title": "  "})
         with self.assertRaises(ValueError):
             normalize_summary({**ACCEPTED, "person_notes": [{"name": "Kim", "note": "x", "extra": 1}]})
+
+    def test_schema_requires_due_date_on_action_items(self):
+        item = SUMMARY_SCHEMA["properties"]["action_items"]["items"]
+        self.assertIn("due_date", item["required"])
+        self.assertEqual(item["properties"]["due_date"]["type"], ["string", "null"])
+
+    def test_prompt_carries_due_date_anchor(self):
+        anchored = build_summary_prompt({"segments": [{"speaker": "A", "text": "내용"}]}, "ko", "2026-07-16")
+        self.assertIn("2026-07-16", anchored)
+        self.assertIn("due_date", anchored)
+        unanchored = build_summary_prompt({"segments": [{"speaker": "A", "text": "내용"}]}, "ko")
+        self.assertIn("meeting date is unknown", unanchored)
+        with self.assertRaises(ValueError):
+            build_summary_prompt({"segments": [{"speaker": "A", "text": "x"}]}, "ko", "next friday")
+
+    def test_normalize_resolves_due_date_and_rejects_invalid_formats(self):
+        # New shape: a resolved date passes through, null stays null.
+        resolved = {**ACCEPTED, "action_items": [{"task": "do", "owner": None, "due": "다음 주 금요일", "due_date": "2026-07-24"}]}
+        self.assertEqual(normalize_summary(resolved)["action_items"][0]["due_date"], "2026-07-24")
+        unresolved = {**ACCEPTED, "action_items": [{"task": "do", "owner": None, "due": "언젠가", "due_date": None}]}
+        self.assertIsNone(normalize_summary(unresolved)["action_items"][0]["due_date"])
+        # Backward compatibility: an item without the field validates as null.
+        legacy = normalize_summary(ACCEPTED)["action_items"][0]
+        self.assertIsNone(legacy["due_date"])
+        self.assertIn("due_date", legacy)
+        # The validator rejects anything that is not a real ISO calendar date.
+        for bad in ("next friday", "2026-13-40", "26-07-24", "2026/07/24", 20260724):
+            with self.assertRaises(ValueError):
+                normalize_summary({**ACCEPTED, "action_items": [{"task": "do", "owner": None, "due": None, "due_date": bad}]})
+
+    def test_valid_meeting_date_accepts_only_iso_days(self):
+        self.assertEqual(valid_meeting_date("2026-07-16"), "2026-07-16")
+        for bad in (None, "", "2026-13-40", "next friday", "2026-07-16T09:00:00", 20260716):
+            self.assertIsNone(valid_meeting_date(bad))
 
     def test_make_boundary_rejects_unknown_agents(self):
         with self.assertRaises(ValueError):
@@ -109,7 +151,7 @@ class ClaudeBoundaryTests(unittest.TestCase):
         with patch.object(boundary, "_execute", return_value=complete):
             result = boundary.run_summary({"segments": [{"speaker": "A", "text": "content"}]}, language="ko")
         self.assertEqual(result.status, "complete")
-        self.assertEqual(result.summary, ACCEPTED)
+        self.assertEqual(result.summary, NORMALIZED)
         malformed = CLIExecution(0, json.dumps({"result": json.dumps({**ACCEPTED, "injected": True})}), "")
         with patch.object(boundary, "_execute", return_value=malformed):
             result = boundary.run_summary({"segments": [{"speaker": "A", "text": "content"}]}, language="ko")
@@ -171,7 +213,7 @@ class CodexBoundaryTests(unittest.TestCase):
         with patch.object(boundary, "_execute", side_effect=fake_execute):
             result = boundary.run_summary({"segments": [{"speaker": "A", "text": "content"}]}, language="ko")
         self.assertEqual(result.status, "complete")
-        self.assertEqual(result.summary, ACCEPTED)
+        self.assertEqual(result.summary, NORMALIZED)
 
     def test_prompt_embeds_the_schema_contract(self):
         boundary = codex()

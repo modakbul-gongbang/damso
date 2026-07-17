@@ -23,7 +23,9 @@ REQUIRED_RECORD_FILES = {
     "transcript.md",
 }
 
-SPEAKER_ACTIONS = {"match", "new", "me", "skip"}
+# "name_only" labels the transcript with a typed name without ever creating a
+# peoples profile (people.py only acts on match/new/me).
+SPEAKER_ACTIONS = {"match", "new", "me", "skip", "name_only"}
 UNSAFE_STEM = re.compile(r"(^$|[\\/]|^\.{1,2}$)")
 
 

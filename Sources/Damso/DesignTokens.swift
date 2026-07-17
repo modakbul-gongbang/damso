@@ -275,6 +275,10 @@ struct StatusPill: View {
         .font(.damsoEyebrow)
         .labelStyle(.titleAndIcon)
         .foregroundStyle(tone.color)
+        .lineLimit(1)
+        // A pill must never wrap ("완/료" in a narrow list); it keeps its
+        // intrinsic width and the surrounding layout flows around it.
+        .fixedSize()
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
         .background(tone.color.opacity(0.12), in: Capsule())

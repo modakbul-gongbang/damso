@@ -148,6 +148,14 @@ private struct StoredSummaryAction: Decodable {
     var task: String
     var owner: String?
     var due: String?
+    var dueDate: String?
+
+    enum CodingKeys: String, CodingKey {
+        case task
+        case owner
+        case due
+        case dueDate = "due_date"
+    }
 }
 
 private struct StoredPersonNote: Decodable {
@@ -301,13 +309,17 @@ extension MeetingStore {
             if let due = action.due, !due.isEmpty { components.append("Due: \(due)") }
             return components.joined(separator: " · ")
         }
+        let actions = summary.actionItems.map { action in
+            SummaryActionItem(task: action.task, owner: action.owner, due: action.due, dueDate: action.dueDate)
+        }
         let roleHints = summary.roleHint.isEmpty ? [:] : ["Meeting role": summary.roleHint]
         let structured = StructuredSummary(
             oneLine: summary.oneLineSummary,
             keyDiscussion: summary.keyPoints,
             actionItems: actionItems,
             roleHints: roleHints,
-            topicSummary: summary.topicSummary
+            topicSummary: summary.topicSummary,
+            actions: actions
         )
         let notes = (summary.personNotes ?? []).compactMap { note -> PersonNoteProposal? in
             let name = note.name.trimmingCharacters(in: .whitespacesAndNewlines)

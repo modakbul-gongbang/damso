@@ -293,7 +293,13 @@ enum MeetingParticipantCaptureWiring {
             // 2026-07-17, user-approved Arc inclusion). Safari and the Zoom
             // app have no capture channel; recording proceeds without
             // capture and the panel hints.
-            guard let source = session.sources.first(where: { $0.app.usesChromux && $0.tabID != nil }),
+            // AppleScript-sourced tab ids ("applescript:N") detect the
+            // meeting but cannot be attached over the chromux channel;
+            // recording proceeds without capture and the pairing hint shows.
+            guard let source = session.sources.first(where: { source in
+                guard source.app.usesChromux, let tabID = source.tabID else { return false }
+                return !tabID.hasPrefix(ChromeAppleScriptTabProbe.idPrefix)
+            }),
                   let tabID = source.tabID,
                   let directory else {
                 coordinator.updatePairingHint(true)

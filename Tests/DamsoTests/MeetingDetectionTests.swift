@@ -338,3 +338,81 @@ struct MeetingDetectionSessionTests {
         #expect(timed.state == .idle)
     }
 }
+
+// MARK: - Chromux live pairing gate
+
+/// `chromux tabs` force-launches the user's real Chrome on a cold start, so
+/// every passive surface (detection loop, menu bar card, Settings) must gate
+/// on the ps-based relay status, which never launches anything.
+struct ChromuxLivePairingParseTests {
+    @Test
+    func connectedLiveRelayIsRecognized() {
+        let json = """
+        {"ok": true, "profiles": [
+            {"profile": "default", "status": "running", "launchMode": "headed"},
+            {"profile": "live", "status": "running", "launchMode": "live", "extension": "connected", "tabs": "12"}
+        ]}
+        """
+        #expect(ChromuxLivePairing.parse(Data(json.utf8)).relayConnected)
+    }
+
+    @Test
+    func waitingKillSwitchMissingLiveRowAndBrokenOutputAllReadAsDisconnected() {
+        let waiting = """
+        {"ok": true, "profiles": [{"profile": "live", "extension": "waiting"}]}
+        """
+        #expect(!ChromuxLivePairing.parse(Data(waiting.utf8)).relayConnected)
+        let killSwitch = """
+        {"ok": true, "profiles": [{"profile": "live", "extension": "kill-switch"}]}
+        """
+        #expect(!ChromuxLivePairing.parse(Data(killSwitch.utf8)).relayConnected)
+        let noLive = """
+        {"ok": true, "profiles": [{"profile": "default", "status": "running"}]}
+        """
+        #expect(!ChromuxLivePairing.parse(Data(noLive.utf8)).relayConnected)
+        #expect(!ChromuxLivePairing.parse(nil).relayConnected)
+        #expect(!ChromuxLivePairing.parse(Data("not json".utf8)).relayConnected)
+    }
+}
+
+// MARK: - Chrome probe fallback (chromux optional)
+
+private struct StubTabProbe: BrowserTabProbing {
+    let result: [BrowserTabSnapshot]
+    func tabs() async -> [BrowserTabSnapshot] { result }
+}
+
+/// chromux pairing is optional: with the relay connected the chromux listing
+/// (capture-capable numeric tab ids) wins; without it the AppleScript
+/// fallback still detects the Meet tab, and its prefixed ids are excluded
+/// from capture attachment.
+struct ChromeTabProbeFallbackTests {
+    @Test
+    func chromuxListingWinsWhenAvailable() async {
+        let chromuxTab = BrowserTabSnapshot(id: "412", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
+        let probe = ChromeTabProbe(
+            primary: StubTabProbe(result: [chromuxTab]),
+            fallback: StubTabProbe(result: [BrowserTabSnapshot(id: "applescript:0", title: "x", url: "https://example.com")])
+        )
+        #expect(await probe.tabs() == [chromuxTab])
+    }
+
+    @Test
+    func appleScriptFallbackDetectsWithoutPairingButNeverFeedsCapture() async {
+        let fallbackTab = BrowserTabSnapshot(id: "applescript:0", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
+        let probe = ChromeTabProbe(primary: StubTabProbe(result: []), fallback: StubTabProbe(result: [fallbackTab]))
+        let tabs = await probe.tabs()
+        #expect(tabs == [fallbackTab])
+
+        // The detection engine accepts the fallback tab...
+        let snapshot = MeetingDetectionSnapshot(
+            micProcesses: [MicProcessSnapshot(bundleID: "com.google.Chrome.helper", isRunningInput: true)],
+            zoomAppInMeeting: false,
+            tabsByApp: [.chrome: tabs]
+        )
+        let detected = MeetingDetectionEngine.detect(snapshot)
+        #expect(detected.first?.service == .meet)
+        // ...while its id stays recognizable as non-attachable for capture.
+        #expect(detected.first?.tabID?.hasPrefix(ChromeAppleScriptTabProbe.idPrefix) == true)
+    }
+}

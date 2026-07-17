@@ -21,6 +21,9 @@ func modelSetupCommandHasOneFixedModuleBoundaryAndNoMeetingInput() {
 
 @Test
 func modelSetupStateExplainsAvailabilityWithoutDisclosingAPath() {
-    #expect(LocalModelSetupState.unavailable("models_not_installed").title == "Local processing models are not installed")
-    #expect(LocalModelSetupState.ready.title == "Local processing models are ready")
+    #expect(LocalModelSetupState.unavailable("models_not_installed").title == Loc.tr("Local processing models are not installed"))
+    #expect(LocalModelSetupState.ready.title == Loc.tr("Local processing models are ready"))
+    for state in [LocalModelSetupState.unavailable("models_not_installed"), .ready, .checking, .installing, .failed("x")] {
+        #expect(!state.title.contains("/"))
+    }
 }
