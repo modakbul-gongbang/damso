@@ -885,6 +885,9 @@ struct DesignReviewWindow: View {
                     detailContent(record)
                         .padding(28)
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    floatingSummaryButton(record)
+                }
             }
             .navigationTitle(meetingDetailTab.title)
             .toolbar {
@@ -1200,7 +1203,6 @@ struct DesignReviewWindow: View {
                 ForEach(workspace.processingArtifacts.proposals) { proposal in
                     speakerCard(proposal, record: record)
                 }
-                summaryActionRow(record)
             }
         }
         .frame(maxWidth: 760, alignment: .leading)
@@ -1229,28 +1231,37 @@ struct DesignReviewWindow: View {
 
     /// Explicit summary trigger. The summary no longer starts automatically on
     /// the last confirmation; the user decides when the transcript is sent to
-    /// the agent.
+    /// the agent. Floats over the detail pane's bottom-trailing corner so it
+    /// stays visible past a long speaker-card list, on every tab.
     @ViewBuilder
-    private func summaryActionRow(_ record: MeetingRecord) -> some View {
-        let resolved = allSpeakersResolved(record)
+    private func floatingSummaryButton(_ record: MeetingRecord) -> some View {
         let hasSummary = record.summary != nil || record.corrections?.summary != nil
-        if resolved && !hasSummary {
-            HStack(spacing: 10) {
-                Button {
-                    Task { await workspace.runSummary() }
-                } label: {
-                    Label(Loc.tr("Generate summary"), systemImage: "sparkles")
+        if record.stage == .speakerReview, allSpeakersResolved(record), !hasSummary {
+            Button {
+                Task { await workspace.runSummary() }
+            } label: {
+                HStack(spacing: 8) {
+                    if workspace.isRequestingSummary {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(DamsoTokens.canvas)
+                    } else {
+                        Image(systemName: "sparkles")
+                    }
+                    Text(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Generate summary"))
+                        .fontWeight(.semibold)
                 }
-                .buttonStyle(DamsoPillButtonStyle(rank: .primary))
-                .disabled(workspace.isRequestingSummary)
-                if workspace.isRequestingSummary {
-                    ProgressView().controlSize(.small)
-                }
-                Text(Loc.tr("Sends the transcript to the selected agent to create the summary and title."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .foregroundStyle(DamsoTokens.canvas)
+                .background(DamsoTokens.ink, in: Capsule())
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
             }
-            .padding(.top, 4)
+            .buttonStyle(.plain)
+            .disabled(workspace.isRequestingSummary)
+            .padding(20)
+            .help(Loc.tr("Sends the transcript to the selected agent to create the summary and title."))
+            .accessibilityIdentifier("damso.floating-generate-summary")
         }
     }
 
@@ -1552,18 +1563,8 @@ struct DesignReviewWindow: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(Loc.tr("Ready to summarize"))
                             .font(.headline)
-                        Text(Loc.tr("Every speaker is confirmed. Generating the summary sends the transcript to the selected agent."))
+                        Text(Loc.tr("Every speaker is confirmed. Press Generate summary at the bottom right to create the summary and title."))
                             .foregroundStyle(.secondary)
-                        HStack(spacing: 10) {
-                            Button(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Generate summary"), systemImage: "sparkles") {
-                                Task { await workspace.runSummary() }
-                            }
-                            .buttonStyle(DamsoPillButtonStyle())
-                            .disabled(workspace.isRequestingSummary)
-                            if workspace.isRequestingSummary {
-                                ProgressView().controlSize(.small)
-                            }
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {

@@ -1521,6 +1521,22 @@
         }
       }
     },
+    "Every speaker is confirmed. Press Generate summary at the bottom right to create the summary and title.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every speaker is confirmed. Press Generate summary at the bottom right to create the summary and title."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 화자가 확인되었습니다. 우측 하단의 요약하기 버튼을 누르면 요약과 제목이 만들어집니다."
+          }
+        }
+      }
+    },
     "Expected speakers: %@": {
       "localizations": {
         "en": {
