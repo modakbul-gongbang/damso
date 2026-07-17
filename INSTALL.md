@@ -24,6 +24,9 @@ Create and activate a virtual environment if your Python installation requires o
 Install the local processing helper with `python -m pip install -e '.[local-processing]'` so the Settings action can run the fixed local setup module.
 Alternatively, install the dependencies with `python -m pip install -r requirements-local.txt`.
 Run `make verify-static` to compile the Swift app and Python package.
+Run `make install-local-app` to build the app, install it as `~/Applications/Damso.app`, register it with Launch Services, and launch it.
+The installed bundle is what makes Spotlight, Launchpad, Launch at Login, and persistent macOS permissions work; `swift run Damso` runs the same app unbundled and is only for iterating on code.
+On the first recording macOS shows Microphone and Screen Recording permission dialogs; approving them must stay a manual user action.
 Set `DAMSO_STORE` to the canonical store root that should contain `Plaud/recordings` and `Plaud/peoples`.
 By default, models live under the app's local Application Support folder (`~/Library/Application Support/Damso`).
 Set `DAMSO_MLX_WHISPER_MODEL_DIR` and `DAMSO_SHERPA_MODEL_DIR` only when you deliberately use another local model directory.
@@ -35,7 +38,7 @@ python -m pip install -e '.[local-processing]'
 make install-local-models
 make doctor
 make test
-swift run Damso
+make install-local-app
 ```
 
 ## Configuration contract
