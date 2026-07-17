@@ -1,0 +1,11 @@
+{
+  "storageRoot": "~/Library/Application Support/Damso",
+  "pythonExecutable": "python3",
+  "chromuxCommand": "chromux",
+  "claudeCommand": "claude",
+  "codexCommand": "codex",
+  "summaryAgent": "claude",
+  "language": "ko",
+  "mlxWhisperModelDirectory": "~/Library/Application Support/Damso/Models/mlx-whisper-large-v3",
+  "sherpaModelDirectory": "~/Library/Application Support/Damso/Models/sherpa-diarization"
+}

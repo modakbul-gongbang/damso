@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "damso"
+version = "0.1.0"
+description = "Local-first macOS meeting capture helpers"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.urls]
+Homepage = "https://github.com/yansfil/damso"
+
+[project.optional-dependencies]
+local-processing = ["mlx-whisper==0.4.3", "numpy>=1.26,<3", "sherpa-onnx==1.13.4", "sherpa-onnx-bin==1.13.4", "huggingface-hub>=1.7,<2"]
+
+[project.scripts]
+damso-processing = "damso.processing:main"
+damso-storage = "damso.migration:main"
+damso-model-setup = "damso.model_setup:main"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]

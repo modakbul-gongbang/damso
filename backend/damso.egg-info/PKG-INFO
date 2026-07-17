@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: damso
+Version: 0.1.0
+Summary: Local-first macOS meeting capture helpers
+Requires-Python: >=3.11
+License-File: LICENSE
+Provides-Extra: local-processing
+Requires-Dist: mlx-whisper==0.4.3; extra == "local-processing"
+Requires-Dist: numpy<3,>=1.26; extra == "local-processing"
+Requires-Dist: sherpa-onnx==1.13.4; extra == "local-processing"
+Requires-Dist: sherpa-onnx-bin==1.13.4; extra == "local-processing"
+Requires-Dist: huggingface-hub<2,>=1.7; extra == "local-processing"
+Dynamic: license-file

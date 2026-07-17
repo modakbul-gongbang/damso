@@ -1,0 +1,5 @@
+mlx-whisper==0.4.3
+numpy>=1.26,<3
+sherpa-onnx==1.13.4
+sherpa-onnx-bin==1.13.4
+huggingface-hub>=1.7,<2

@@ -1,0 +1,49 @@
+# macOS
+.DS_Store
+
+# Meeting data — never commit recordings, transcripts, or speaker registry.
+# The storage root is user-configurable; these are the default/likely locations.
+/data/
+/recordings/
+/peoples/
+*.wav
+*.mp3
+*.opus
+*.ogg
+*.m4a
+*.npy
+*.npz
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+dist/
+*.xcuserstate
+xcuserdata/
+
+# Python backend runtime
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Local secrets and machine-specific config
+.env
+.env.local
+
+# Local meeting data and credentials
+meeting-store/
+fixtures/private/
+session.json
+
+# Internal PRD-pipeline documents and harness state are local run artifacts.
+agents/
+.hoyeon/
+.pytest_cache/
+
+# Stray SwiftPM/SourceKit index droppings at repo root
+/*.o
+/*.d
+/*.swiftdeps
+/*.swiftdeps~

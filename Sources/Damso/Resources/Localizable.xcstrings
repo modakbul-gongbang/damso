@@ -1,0 +1,5894 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@ needs a re-login": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a re-login"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 재로그인 필요"
+          }
+        }
+      }
+    },
+    "%@ of speech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ of speech"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "발화 %@"
+          }
+        }
+      }
+    },
+    "%@ sync failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sync failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 동기화 실패"
+          }
+        }
+      }
+    },
+    "%@ sync finished": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sync finished"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 동기화 완료"
+          }
+        }
+      }
+    },
+    "%d confirmed meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d confirmed meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확정된 미팅 %d개"
+          }
+        }
+      }
+    },
+    "%d min": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d min"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d분"
+          }
+        }
+      }
+    },
+    "%d new recordings were imported.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d new recordings were imported."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 녹음 %d개를 가져왔습니다."
+          }
+        }
+      }
+    },
+    "%d participants": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d participants"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 %d명"
+          }
+        }
+      }
+    },
+    "%d people": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d people"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d명"
+          }
+        }
+      }
+    },
+    "%d percent played": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d percent played"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d퍼센트 재생됨"
+          }
+        }
+      }
+    },
+    "%d segments": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d segments"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세그먼트 %d개"
+          }
+        }
+      }
+    },
+    "%d segments tidied": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d segments tidied"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d개 구간 정리됨"
+          }
+        }
+      }
+    },
+    "%d speakers need review": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d speakers need review"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 %d명 확인 필요"
+          }
+        }
+      }
+    },
+    "%d voices detected. Confirm them in Speakers to add people to this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d voices detected. Confirm them in Speakers to add people to this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d개의 음성이 감지되었습니다. 화자 탭에서 확인하면 이 미팅에 사람이 연결됩니다."
+          }
+        }
+      }
+    },
+    "%d voices were detected. Match each one to a person, then generate the summary.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d voices were detected. Match each one to a person, then generate the summary."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 %d개가 감지되었습니다. 각 음성을 사람과 연결한 뒤 요약을 만들 수 있습니다."
+          }
+        }
+      }
+    },
+    "A browser window opened for sign-in. This times out after 2 minutes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser window opened for sign-in. This times out after 2 minutes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인용 브라우저 창이 열렸습니다. 2분이 지나면 시간 초과됩니다."
+          }
+        }
+      }
+    },
+    "AI is reading the transcript for suggestions...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI is reading the transcript for suggestions..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI가 전사를 읽고 추천을 준비하는 중..."
+          }
+        }
+      }
+    },
+    "AI suggestions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI suggestions"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 추천"
+          }
+        }
+      }
+    },
+    "AI tidied": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI tidied"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 정리 적용"
+          }
+        }
+      }
+    },
+    "Accepted meeting notes about this person will appear here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepted meeting notes about this person will appear here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수락한 인물 메모가 여기에 표시됩니다."
+          }
+        }
+      }
+    },
+    "Action items": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action items"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액션 아이템"
+          }
+        }
+      }
+    },
+    "Add to profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필에 추가"
+          }
+        }
+      }
+    },
+    "Adjust the search or filters to see more meetings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust the search or filters to see more meetings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 많은 미팅을 보려면 검색어나 필터를 조정하세요."
+          }
+        }
+      }
+    },
+    "After the speakers of a meeting are confirmed, the transcript text is sent to the selected agent CLI to create the summary and title automatically. There is no automatic fallback to the other agent.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After the speakers of a meeting are confirmed, the transcript text is sent to the selected agent CLI to create the summary and title automatically. There is no automatic fallback to the other agent."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅의 화자 확인이 끝나면 전사 텍스트가 선택된 에이전트 CLI로 전송되어 요약과 제목이 자동 생성됩니다. 다른 에이전트로 자동 대체되지 않습니다."
+          }
+        }
+      }
+    },
+    "Agent & Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent & Language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트·언어"
+          }
+        }
+      }
+    },
+    "Alias added: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias added: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가되는 별칭: %@"
+          }
+        }
+      }
+    },
+    "Aliases": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aliases"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별칭"
+          }
+        }
+      }
+    },
+    "Aliases added: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aliases added: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가되는 별칭: %@"
+          }
+        }
+      }
+    },
+    "Aliases are used for search and candidate matching. Only the primary name is shown elsewhere.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aliases are used for search and candidate matching. Only the primary name is shown elsewhere."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별칭은 검색과 후보 매칭에 사용됩니다. 다른 화면에는 대표 이름만 표시됩니다."
+          }
+        }
+      }
+    },
+    "All sources": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All sources"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 소스"
+          }
+        }
+      }
+    },
+    "All stages": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All stages"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 단계"
+          }
+        }
+      }
+    },
+    "Allow Microphone access in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Microphone access in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 마이크 접근을 허용한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Allow Screen Recording access in System Settings, then try again to capture system audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Screen Recording access in System Settings, then try again to capture system audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 화면 기록 접근을 허용한 뒤 시스템 오디오 캡처를 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Allow Screen Recording access in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Screen Recording access in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 화면 기록 접근을 허용한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Another recording overlaps this one in time. Nothing is merged or deleted automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another recording overlaps this one in time. Nothing is merged or deleted automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 녹음이 이 녹음과 시간상 겹칩니다. 자동으로 병합하거나 삭제하지 않습니다."
+          }
+        }
+      }
+    },
+    "App and output language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App and output language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱·산출물 언어"
+          }
+        }
+      }
+    },
+    "Applies to the interface and to generated summaries, titles, and person notes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to the interface and to generated summaries, titles, and person notes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터페이스와 생성되는 요약·제목·인물 메모에 적용됩니다."
+          }
+        }
+      }
+    },
+    "Approve the macOS Microphone and Screen Recording prompts. Capture starts automatically after approval.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve the macOS Microphone and Screen Recording prompts. Capture starts automatically after approval."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 마이크·화면 기록 권한을 허용하세요. 허용 후 캡처가 자동으로 시작됩니다."
+          }
+        }
+      }
+    },
+    "Asking the agent...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asking the agent..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트에게 묻는 중..."
+          }
+        }
+      }
+    },
+    "Back": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "뒤로"
+          }
+        }
+      }
+    },
+    "Back 15 seconds": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back 15 seconds"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15초 뒤로"
+          }
+        }
+      }
+    },
+    "CLI found": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI found"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 확인됨"
+          }
+        }
+      }
+    },
+    "CLI not found on PATH": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI not found on PATH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PATH에서 CLI를 찾지 못함"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        }
+      }
+    },
+    "Captured": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captured"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음"
+          }
+        }
+      }
+    },
+    "Captured from the live meeting. Confirming saves this display name as a profile alias.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captured from the live meeting. Confirming saves this display name as a profile alias."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 중 수집된 이름입니다. 확인하면 이 표시 이름이 프로필 별칭으로 저장됩니다."
+          }
+        }
+      }
+    },
+    "Check again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 확인"
+          }
+        }
+      }
+    },
+    "Check status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check status"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 확인"
+          }
+        }
+      }
+    },
+    "Check storage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check storage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 확인"
+          }
+        }
+      }
+    },
+    "Checking chromux pairing...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking chromux pairing..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chromux 페어링 확인 중..."
+          }
+        }
+      }
+    },
+    "Choose a meeting from Meeting Log to see its summary, recording, people, and transcript.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a meeting from Meeting Log to see its summary, recording, people, and transcript."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 로그에서 미팅을 선택하면 요약, 녹음, 사람, 전사를 볼 수 있습니다."
+          }
+        }
+      }
+    },
+    "Choose a person for %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a person for %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 인물 선택"
+          }
+        }
+      }
+    },
+    "Choose a writable local storage root, then retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a writable local storage root, then retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓰기 가능한 로컬 저장소 루트를 선택한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "Choose person...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose person..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 선택하기..."
+          }
+        }
+      }
+    },
+    "Choose storage folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose storage folder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 폴더 선택"
+          }
+        }
+      }
+    },
+    "Chrome pairing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome pairing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome 페어링"
+          }
+        }
+      }
+    },
+    "Clear filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear filters"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 초기화"
+          }
+        }
+      }
+    },
+    "Collect participant names while recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collect participant names while recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 중 참석자 이름 수집"
+          }
+        }
+      }
+    },
+    "Combines duplicate profiles: meeting history, voice profile, notes, and aliases move to the name you keep. The absorbed folder is archived first.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combines duplicate profiles: meeting history, voice profile, notes, and aliases move to the name you keep. The absorbed folder is archived first."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 프로필을 통합합니다. 미팅 이력, 음성 프로필, 노트, 별칭이 남길 이름으로 이관되며, 흡수되는 폴더는 먼저 아카이브됩니다."
+          }
+        }
+      }
+    },
+    "Complete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        }
+      }
+    },
+    "Completed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        }
+      }
+    },
+    "Confirm each speaker, then press Generate summary. You can reassign a speaker here at any time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm each speaker, then press Generate summary. You can reassign a speaker here at any time."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 화자를 확인한 뒤 [요약하기]를 누르세요. 화자는 언제든 여기서 다시 지정할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Confirm or skip every speaker card to start the automatic summary.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm or skip every speaker card to start the automatic summary."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 화자 카드를 확정하거나 건너뛰면 자동 요약이 시작됩니다."
+          }
+        }
+      }
+    },
+    "Confirm speakers first": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm speakers first"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인이 먼저입니다"
+          }
+        }
+      }
+    },
+    "Confirm the speaker cards. The summary and title are created automatically afterwards.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm the speaker cards. The summary and title are created automatically afterwards."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 카드를 확인하세요. 이후 요약과 제목이 자동으로 생성됩니다."
+          }
+        }
+      }
+    },
+    "Confirm the speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm the speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자를 확인하세요"
+          }
+        }
+      }
+    },
+    "Confirmed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확정됨"
+          }
+        }
+      }
+    },
+    "Connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결"
+          }
+        }
+      }
+    },
+    "Connect or enable a display, then try recording again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or enable a display, then try recording again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이를 연결하거나 활성화한 뒤 녹음을 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Connect your account to import recordings automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect your account to import recordings automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 연결하면 녹음을 자동으로 가져옵니다."
+          }
+        }
+      }
+    },
+    "Connected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
+          }
+        }
+      }
+    },
+    "Contact": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contact"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연락처"
+          }
+        }
+      }
+    },
+    "Corrections are kept separate from original local processing output, so retry and reprocessing remain auditable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrections are kept separate from original local processing output, so retry and reprocessing remain auditable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정 내용은 원본 로컬 처리 결과와 분리 저장되어 재시도와 재처리를 추적할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Create person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 인물 만들기"
+          }
+        }
+      }
+    },
+    "Create “%@” as a new person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create “%@” as a new person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 새 인물로 만들기"
+          }
+        }
+      }
+    },
+    "Creating summary...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating summary..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 생성 중..."
+          }
+        }
+      }
+    },
+    "Creating the summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating the summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 생성 중"
+          }
+        }
+      }
+    },
+    "Damso will create and use its canonical Plaud folder structure inside this local folder. Existing data is never moved automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso will create and use its canonical Plaud folder structure inside this local folder. Existing data is never moved automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso가 이 로컬 폴더 안에 canonical Plaud 폴더 구조를 만들고 사용합니다. 기존 데이터는 자동으로 이동되지 않습니다."
+          }
+        }
+      }
+    },
+    "Decline": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decline"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거절"
+          }
+        }
+      }
+    },
+    "Default agent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 에이전트"
+          }
+        }
+      }
+    },
+    "Delete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제"
+          }
+        }
+      }
+    },
+    "Delete meeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete meeting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 삭제"
+          }
+        }
+      }
+    },
+    "Delete “%@”?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 미팅을 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Detect meetings and offer to record": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detect meetings and offer to record"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅을 감지해 녹음 제안 표시"
+          }
+        }
+      }
+    },
+    "Discard": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "버리기"
+          }
+        }
+      }
+    },
+    "Disconnect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 해제"
+          }
+        }
+      }
+    },
+    "Display name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시 이름"
+          }
+        }
+      }
+    },
+    "Domain terms, separated by commas": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain terms, separated by commas"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 용어 (쉼표로 구분)"
+          }
+        }
+      }
+    },
+    "Download and install": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download and install"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드 및 설치"
+          }
+        }
+      }
+    },
+    "Duplicate?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 의심"
+          }
+        }
+      }
+    },
+    "During an approved recording of a chromux-paired browser meeting, participant names and Meet active-speaker samples are collected into the meeting folder. Names never leave this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "During an approved recording of a chromux-paired browser meeting, participant names and Meet active-speaker samples are collected into the meeting folder. Names never leave this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chromux 페어링된 브라우저의 미팅을 승인 후 녹음하는 동안 참석자 이름과 Meet 활성 화자 샘플을 미팅 폴더에 수집합니다. 이름은 이 Mac 밖으로 나가지 않습니다."
+          }
+        }
+      }
+    },
+    "Edit meeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit meeting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 편집"
+          }
+        }
+      }
+    },
+    "Email (optional)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email (optional)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일 (선택)"
+          }
+        }
+      }
+    },
+    "Every proposed note was declined. Profiles stay unchanged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every proposed note was declined. Profiles stay unchanged."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안된 메모가 모두 거절되었습니다. 프로필은 변경되지 않습니다."
+          }
+        }
+      }
+    },
+    "Every speaker is confirmed. Generating the summary sends the transcript to the selected agent.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every speaker is confirmed. Generating the summary sends the transcript to the selected agent."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 화자가 확인되었습니다. 요약하기를 누르면 전사가 선택한 에이전트로 전송됩니다."
+          }
+        }
+      }
+    },
+    "Expected speakers: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected speakers: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예상 화자 수: %@"
+          }
+        }
+      }
+    },
+    "External Sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External Sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External Sync"
+          }
+        }
+      }
+    },
+    "Filter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터"
+          }
+        }
+      }
+    },
+    "Filter meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 필터"
+          }
+        }
+      }
+    },
+    "Filtered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtered"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 적용됨"
+          }
+        }
+      }
+    },
+    "Finish local transcription before the summary step can run.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish local transcription before the summary step can run."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 단계를 실행하려면 로컬 전사를 먼저 완료하세요."
+          }
+        }
+      }
+    },
+    "Forward 15 seconds": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward 15 seconds"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15초 앞으로"
+          }
+        }
+      }
+    },
+    "Generate summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generate summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약하기"
+          }
+        }
+      }
+    },
+    "Hide from Needs your action": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide from Needs your action"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요에서 숨기기"
+          }
+        }
+      }
+    },
+    "Ignore": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignore"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무시"
+          }
+        }
+      }
+    },
+    "Imported via External Sync (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported via External Sync (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External Sync로 가져옴 (%@)"
+          }
+        }
+      }
+    },
+    "In progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In progress"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중"
+          }
+        }
+      }
+    },
+    "Indexed %d meetings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indexed %d meetings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 %d개를 인덱싱했습니다."
+          }
+        }
+      }
+    },
+    "Install Node 20 or newer, run the command below in Terminal, then check again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Node 20 or newer, run the command below in Terminal, then check again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node 20 이상을 설치하고 터미널에서 아래 명령을 실행한 뒤 다시 확인하세요."
+          }
+        }
+      }
+    },
+    "Install local models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install local models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 모델 설치"
+          }
+        }
+      }
+    },
+    "Install local processing models?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install local processing models?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델을 설치할까요?"
+          }
+        }
+      }
+    },
+    "Just synced · %d new": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just synced · %d new"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금 동기화됨 · 새 항목 %d개"
+          }
+        }
+      }
+    },
+    "Just synced · %d new, %d retrying": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just synced · %d new, %d retrying"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금 동기화됨 · 새 항목 %d개, 재시도 %d개"
+          }
+        }
+      }
+    },
+    "Keep anyway": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep anyway"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그래도 보관"
+          }
+        }
+      }
+    },
+    "Keep local files if any were captured, then retry recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep local files if any were captured, then retry recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처된 로컬 파일이 있으면 보존한 뒤 녹음을 재시도하세요."
+          }
+        }
+      }
+    },
+    "Keep the captured local audio and retry stopping the recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the captured local audio and retry stopping the recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처된 로컬 오디오를 보존한 채 녹음 중지를 재시도하세요."
+          }
+        }
+      }
+    },
+    "Key points": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key points"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "핵심 논의"
+          }
+        }
+      }
+    },
+    "Key remarks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key remarks"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주요 발화"
+          }
+        }
+      }
+    },
+    "Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "언어"
+          }
+        }
+      }
+    },
+    "Last synced %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last synced %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 동기화 %@"
+          }
+        }
+      }
+    },
+    "Launch at Login": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch at Login"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 시 실행"
+          }
+        }
+      }
+    },
+    "Leave this blank to keep an unavailable summary unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave this blank to keep an unavailable summary unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 요약 없음 상태가 유지됩니다."
+          }
+        }
+      }
+    },
+    "Leftover transcription artifacts were removed by the agent. The original recording text is kept unchanged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leftover transcription artifacts were removed by the agent. The original recording text is kept unchanged."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "남아 있던 전사 오류를 에이전트가 정리했어요. 원본 전사 텍스트는 그대로 보존돼요."
+          }
+        }
+      }
+    },
+    "Local Meeting Storage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Meeting Storage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 미팅 저장소"
+          }
+        }
+      }
+    },
+    "Local Models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 모델"
+          }
+        }
+      }
+    },
+    "Local Processing Models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Processing Models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 모델"
+          }
+        }
+      }
+    },
+    "Local processing failed without uploading meeting data. Check local models and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local processing failed without uploading meeting data. Check local models and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 데이터 업로드 없이 로컬 처리가 실패했습니다. 로컬 모델을 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "Local processing is running. The next stage starts automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local processing is running. The next stage starts automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리가 실행 중입니다. 다음 단계는 자동으로 시작됩니다."
+          }
+        }
+      }
+    },
+    "Local transcription and speaker separation are still running.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local transcription and speaker separation are still running."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사와 화자 분리가 아직 실행 중입니다."
+          }
+        }
+      }
+    },
+    "Local voice candidates": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local voice candidates"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 음성 후보"
+          }
+        }
+      }
+    },
+    "Local voice profile ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local voice profile ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 음성 프로필 있음"
+          }
+        }
+      }
+    },
+    "Match each detected voice to a person, then generate the summary.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match each detected voice to a person, then generate the summary."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지된 음성을 사람과 연결한 뒤 요약을 만들 수 있습니다."
+          }
+        }
+      }
+    },
+    "Match each detected voice to a person. The summary and title are created automatically once every card is decided.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match each detected voice to a person. The summary and title are created automatically once every card is decided."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지된 음성을 사람과 연결하세요. 모든 카드가 결정되면 요약과 제목이 자동 생성됩니다."
+          }
+        }
+      }
+    },
+    "Me": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Me"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나"
+          }
+        }
+      }
+    },
+    "Meeting Detection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting Detection"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지"
+          }
+        }
+      }
+    },
+    "Meeting Log": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting Log"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 로그"
+          }
+        }
+      }
+    },
+    "Meeting detected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting detected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지됨"
+          }
+        }
+      }
+    },
+    "Meeting detected: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting detected: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지됨: %@"
+          }
+        }
+      }
+    },
+    "Meeting detection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting detection"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지"
+          }
+        }
+      }
+    },
+    "Meeting detection is off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting detection is off"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지 꺼짐"
+          }
+        }
+      }
+    },
+    "Meeting hints": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting hints"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 힌트"
+          }
+        }
+      }
+    },
+    "Meeting history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting history"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 이력"
+          }
+        }
+      }
+    },
+    "Meeting on %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting on %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 미팅"
+          }
+        }
+      }
+    },
+    "Meeting participants": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting participants"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 참석자"
+          }
+        }
+      }
+    },
+    "Meeting results will update here as each local step finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting results will update here as each local step finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 로컬 단계가 끝나면 결과가 여기에 갱신됩니다."
+          }
+        }
+      }
+    },
+    "Meeting section": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting section"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 섹션"
+          }
+        }
+      }
+    },
+    "Meeting title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meeting title"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 제목"
+          }
+        }
+      }
+    },
+    "Meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅"
+          }
+        }
+      }
+    },
+    "Merge %@ with...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge %@ with..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 프로필 합치기"
+          }
+        }
+      }
+    },
+    "Merge into “%@”": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge into “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”(으)로 합치기"
+          }
+        }
+      }
+    },
+    "Merge profiles": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge profiles"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 합치기"
+          }
+        }
+      }
+    },
+    "Merge with another profile...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge with another profile..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로필과 합치기..."
+          }
+        }
+      }
+    },
+    "Mic + system audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mic + system audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 + 시스템 오디오"
+          }
+        }
+      }
+    },
+    "Microphone and system audio are being kept locally.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone and system audio are being kept locally."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크와 시스템 오디오가 로컬에만 저장되고 있습니다."
+          }
+        }
+      }
+    },
+    "My Profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 정보"
+          }
+        }
+      }
+    },
+    "Name to keep": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name to keep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "남길 이름"
+          }
+        }
+      }
+    },
+    "Names and profile aliases are searched.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Names and profile aliases are searched."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름과 프로필 별칭을 함께 검색합니다."
+          }
+        }
+      }
+    },
+    "Needs a person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs a person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 지정 필요"
+          }
+        }
+      }
+    },
+    "Needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요"
+          }
+        }
+      }
+    },
+    "Needs your action": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your action"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요"
+          }
+        }
+      }
+    },
+    "Needs your decision": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your decision"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인이 필요해요"
+          }
+        }
+      }
+    },
+    "New recordings from the last 7 days are imported and processed locally. Nothing is uploaded.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New recordings from the last 7 days are imported and processed locally. Nothing is uploaded."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 7일의 새 녹음을 가져와 이 Mac에서 처리합니다. 어떤 것도 업로드되지 않습니다."
+          }
+        }
+      }
+    },
+    "No aliases yet. Display names captured from meetings accumulate here after you confirm a speaker.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No aliases yet. Display names captured from meetings accumulate here after you confirm a speaker."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 별칭이 없습니다. 화자 확인 후 미팅에서 수집된 표시 이름이 여기에 쌓입니다."
+          }
+        }
+      }
+    },
+    "No confirmed meetings are linked to this person yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No confirmed meetings are linked to this person yet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 인물과 연결된 확정 미팅이 아직 없습니다."
+          }
+        }
+      }
+    },
+    "No confirmed people": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No confirmed people"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확정된 사람 없음"
+          }
+        }
+      }
+    },
+    "No local meetings yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local meetings yet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 로컬 미팅이 없습니다"
+          }
+        }
+      }
+    },
+    "No local transcript is available yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local transcript is available yet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 로컬 전사가 없습니다."
+          }
+        }
+      }
+    },
+    "No matching people": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching people"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 사람이 없습니다"
+          }
+        }
+      }
+    },
+    "No meetings match the filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No meetings match the filters"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터와 일치하는 미팅이 없습니다"
+          }
+        }
+      }
+    },
+    "No participants are linked to this meeting yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No participants are linked to this meeting yet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅에 연결된 참석자가 아직 없습니다."
+          }
+        }
+      }
+    },
+    "No people match the search": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No people match the search"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색과 일치하는 사람이 없습니다"
+          }
+        }
+      }
+    },
+    "No people yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No people yet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 등록된 사람이 없습니다"
+          }
+        }
+      }
+    },
+    "No playable excerpt is available for this local record.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No playable excerpt is available for this local record."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로컬 레코드에 재생 가능한 발췌가 없습니다."
+          }
+        }
+      }
+    },
+    "No playable source recording is available for this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No playable source recording is available for this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅에 재생 가능한 원본 녹음이 없습니다."
+          }
+        }
+      }
+    },
+    "No saved profile for this name yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved profile for this name yet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 이름으로 저장된 프로필이 아직 없어요."
+          }
+        }
+      }
+    },
+    "No saved voice profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved voice profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 음성 프로필 없음"
+          }
+        }
+      }
+    },
+    "No summary was saved for this meeting yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No summary was saved for this meeting yet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅의 요약이 아직 저장되지 않았습니다."
+          }
+        }
+      }
+    },
+    "No summary was saved. Review local diagnostics and retry the summary stage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No summary was saved. Review local diagnostics and retry the summary stage."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약이 저장되지 않았습니다. 로컬 진단을 확인하고 요약 단계를 재시도하세요."
+          }
+        }
+      }
+    },
+    "No voice profile to transfer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No voice profile to transfer"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이관할 음성 프로필 없음"
+          }
+        }
+      }
+    },
+    "Not connected · open Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected · open Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미연결 · 설정에서 연결"
+          }
+        }
+      }
+    },
+    "Not paired": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not paired"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 안 됨"
+          }
+        }
+      }
+    },
+    "Not ready: %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready: %@."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "준비 안 됨: %@."
+          }
+        }
+      }
+    },
+    "Not set": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not set"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 안 함"
+          }
+        }
+      }
+    },
+    "Note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모"
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
+    },
+    "Open Damso": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Damso"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso 열기"
+          }
+        }
+      }
+    },
+    "Open Speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 탭 열기"
+          }
+        }
+      }
+    },
+    "Open this person's history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open this person's history"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사람의 히스토리 열기"
+          }
+        }
+      }
+    },
+    "Optional context": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional context"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택적 컨텍스트"
+          }
+        }
+      }
+    },
+    "Optional participants, topic, terms, and expected speaker count. Recording can start without them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional participants, topic, terms, and expected speaker count. Recording can start without them."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자·주제·용어·예상 화자 수는 선택 사항입니다. 없이도 녹음을 시작할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Overview": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개요"
+          }
+        }
+      }
+    },
+    "Paired - %d Chrome tabs visible": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired - %d Chrome tabs visible"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링됨 - Chrome 탭 %d개 확인"
+          }
+        }
+      }
+    },
+    "Participant capture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participant capture"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 수집"
+          }
+        }
+      }
+    },
+    "Participant capture ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participant capture ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 수집 준비됨"
+          }
+        }
+      }
+    },
+    "Participant capture uses the chromux extension in your Chrome. Run `chromux pair` in a terminal, approve the extension, then check again. Recording works fine without pairing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participant capture uses the chromux extension in your Chrome. Run `chromux pair` in a terminal, approve the extension, then check again. Recording works fine without pairing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 수집은 Chrome의 chromux 확장을 사용합니다. 터미널에서 `chromux pair`를 실행해 확장을 승인한 뒤 다시 확인하세요. 페어링 없이도 녹음은 정상 동작합니다."
+          }
+        }
+      }
+    },
+    "Participants, separated by commas": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participants, separated by commas"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 (쉼표로 구분)"
+          }
+        }
+      }
+    },
+    "Pause recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 일시정지"
+          }
+        }
+      }
+    },
+    "People": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람"
+          }
+        }
+      }
+    },
+    "People appear here after you confirm a speaker, or import a local peoples folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People appear here after you confirm a speaker, or import a local peoples folder."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자를 확정하거나 로컬 peoples 폴더를 가져오면 여기에 사람이 표시됩니다."
+          }
+        }
+      }
+    },
+    "People confirmed from speaker review appear here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People confirmed from speaker review appear here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인에서 확정된 사람이 여기에 표시됩니다."
+          }
+        }
+      }
+    },
+    "Person detail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Person detail"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 상세"
+          }
+        }
+      }
+    },
+    "Person name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Person name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 이름"
+          }
+        }
+      }
+    },
+    "Person notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Person notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 메모"
+          }
+        }
+      }
+    },
+    "Pipeline progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pipeline progress"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파이프라인 진행"
+          }
+        }
+      }
+    },
+    "Play recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 재생"
+          }
+        }
+      }
+    },
+    "Play speaker sample": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play speaker sample"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 샘플 재생"
+          }
+        }
+      }
+    },
+    "Plays a short audio section where this speaker was detected. Use it to confirm the person before saving their voice profile.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plays a short audio section where this speaker was detected. Use it to confirm the person before saving their voice profile."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 화자가 감지된 짧은 오디오 구간을 재생합니다. 음성 프로필을 저장하기 전에 확인하세요."
+          }
+        }
+      }
+    },
+    "Plays the selected local audio range for this speaker.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plays the selected local audio range for this speaker."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 화자의 선택된 로컬 오디오 구간을 재생합니다."
+          }
+        }
+      }
+    },
+    "Possible duplicate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible duplicate"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 가능성"
+          }
+        }
+      }
+    },
+    "Possible duplicates only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible duplicates only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 의심만 보기"
+          }
+        }
+      }
+    },
+    "Preparing audio for playback...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing audio for playback..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 가능한 형식으로 변환 중..."
+          }
+        }
+      }
+    },
+    "Processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리 중"
+          }
+        }
+      }
+    },
+    "Processing is idle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing is idle"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리 대기 중"
+          }
+        }
+      }
+    },
+    "Processing locally": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing locally"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리 중"
+          }
+        }
+      }
+    },
+    "Processing needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리에 문제가 있습니다"
+          }
+        }
+      }
+    },
+    "Profile notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 메모"
+          }
+        }
+      }
+    },
+    "Profile notes are appended to the kept profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile notes are appended to the kept profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 노트가 남길 프로필에 이어 붙습니다"
+          }
+        }
+      }
+    },
+    "Profiles merged, but the search index could not be rebuilt. Files are intact; run Rebuild index from Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profiles merged, but the search index could not be rebuilt. Files are intact; run Rebuild index from Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필은 합쳐졌지만 검색 인덱스 재구축에 실패했습니다. 파일은 온전하니 설정의 인덱스 재구축을 실행하세요."
+          }
+        }
+      }
+    },
+    "Proposed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안됨"
+          }
+        }
+      }
+    },
+    "Quit Damso": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Damso"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damso 종료"
+          }
+        }
+      }
+    },
+    "Re-login needed · open Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-login needed · open Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재로그인 필요 · 설정 열기"
+          }
+        }
+      }
+    },
+    "Ready to capture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to capture"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 준비 완료"
+          }
+        }
+      }
+    },
+    "Ready to summarize": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to summarize"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 준비 완료"
+          }
+        }
+      }
+    },
+    "Rebuild failed. Check that Python and the store root are available.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuild failed. Check that Python and the store root are available."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재구축에 실패했습니다. Python과 저장소 루트를 확인하세요."
+          }
+        }
+      }
+    },
+    "Rebuild search index": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuild search index"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 인덱스 재구축"
+          }
+        }
+      }
+    },
+    "Rebuilding...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuilding..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재구축 중..."
+          }
+        }
+      }
+    },
+    "Record": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음"
+          }
+        }
+      }
+    },
+    "Record now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 녹음"
+          }
+        }
+      }
+    },
+    "Recorded on this Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded on this Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 녹음"
+          }
+        }
+      }
+    },
+    "Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음"
+          }
+        }
+      }
+    },
+    "Recording a detected meeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording a detected meeting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지된 미팅 녹음 중"
+          }
+        }
+      }
+    },
+    "Recording in progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording in progress"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 진행 중"
+          }
+        }
+      }
+    },
+    "Recording needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음에 문제가 있습니다"
+          }
+        }
+      }
+    },
+    "Recording waveform": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording waveform"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 파형"
+          }
+        }
+      }
+    },
+    "Refresh library": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh library"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브러리 새로고침"
+          }
+        }
+      }
+    },
+    "Refresh local meeting library": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh local meeting library"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 미팅 라이브러리 새로고침"
+          }
+        }
+      }
+    },
+    "Remove alias %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove alias %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별칭 %@ 삭제"
+          }
+        }
+      }
+    },
+    "Renaming here never rewrites past meetings. Keep old names as aliases on your profile so earlier confirmations still point to you.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming here never rewrites past meetings. Keep old names as aliases on your profile so earlier confirmations still point to you."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서 이름을 바꿔도 지난 미팅 기록은 수정되지 않습니다. 이전 이름은 프로필 별칭으로 남겨 두면 과거 확인도 계속 나를 가리킵니다."
+          }
+        }
+      }
+    },
+    "Reopen Damso before starting another recording so the main window uses the selected root. Existing data was not moved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Damso before starting another recording so the main window uses the selected root. Existing data was not moved."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 루트를 메인 창이 사용하도록 다음 녹음 전에 Damso를 다시 여세요. 기존 데이터는 이동되지 않았습니다."
+          }
+        }
+      }
+    },
+    "Retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도"
+          }
+        }
+      }
+    },
+    "Retry processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리 재시도"
+          }
+        }
+      }
+    },
+    "Retry summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 재시도"
+          }
+        }
+      }
+    },
+    "Retrying...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrying..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도 중..."
+          }
+        }
+      }
+    },
+    "Review speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인하기"
+          }
+        }
+      }
+    },
+    "Review the local status and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the local status and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 상태를 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장됨"
+          }
+        }
+      }
+    },
+    "Search index": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search index"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 인덱스"
+          }
+        }
+      }
+    },
+    "Search meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 검색"
+          }
+        }
+      }
+    },
+    "Search people": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search people"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람 검색"
+          }
+        }
+      }
+    },
+    "Select a meeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a meeting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅을 선택하세요"
+          }
+        }
+      }
+    },
+    "Select a person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물을 선택하세요"
+          }
+        }
+      }
+    },
+    "Sends the transcript to the selected agent to create the summary and title.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends the transcript to the selected agent to create the summary and title."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사를 선택한 에이전트로 보내 요약과 제목을 생성합니다."
+          }
+        }
+      }
+    },
+    "Sends this transcript to your selected agent to guess who each speaker is from the conversation content.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends this transcript to your selected agent to guess who each speaker is from the conversation content."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 전사를 선택한 에이전트에 보내 대화 내용으로 각 화자가 누구인지 추정합니다."
+          }
+        }
+      }
+    },
+    "Service unavailable · will retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Service unavailable · will retry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서비스 연결 불가 · 자동 재시도"
+          }
+        }
+      }
+    },
+    "Set up participant capture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up participant capture"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참석자 수집 설정하기"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정"
+          }
+        }
+      }
+    },
+    "Setup stopped: %@. Check your network and local Python setup, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup stopped: %@. Check your network and local Python setup, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 중단: %@. 네트워크와 로컬 Python 설정을 확인한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Short recording - discard it?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Short recording - discard it?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "짧은 녹음 - 버릴까요?"
+          }
+        }
+      }
+    },
+    "Short recording needs a decision": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Short recording needs a decision"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "짧은 녹음 결정 대기 중"
+          }
+        }
+      }
+    },
+    "Show in Needs your action": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Needs your action"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요에 다시 표시"
+          }
+        }
+      }
+    },
+    "Show original": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show original"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 보기"
+          }
+        }
+      }
+    },
+    "Skip": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건너뛰기"
+          }
+        }
+      }
+    },
+    "Skipped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건너뜀"
+          }
+        }
+      }
+    },
+    "Source": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소스"
+          }
+        }
+      }
+    },
+    "Speaker cards will appear after local processing completes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker cards will appear after local processing completes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리가 끝나면 화자 카드가 표시됩니다."
+          }
+        }
+      }
+    },
+    "Speaker confirmations are saved. Only the summary stage runs again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker confirmations are saved. Only the summary stage runs again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확정은 저장되어 있습니다. 요약 단계만 다시 실행됩니다."
+          }
+        }
+      }
+    },
+    "Speaker review": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker review"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인"
+          }
+        }
+      }
+    },
+    "Speaker suggestions were not produced. Retry after checking local diagnostics.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker suggestions were not produced. Retry after checking local diagnostics."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 추천을 생성하지 못했습니다. 로컬 진단을 확인한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "Speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자"
+          }
+        }
+      }
+    },
+    "Speakers need confirmation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speakers need confirmation"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인 필요"
+          }
+        }
+      }
+    },
+    "Stage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단계"
+          }
+        }
+      }
+    },
+    "Start now. Add speaker or topic hints whenever you need them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start now. Add speaker or topic hints whenever you need them."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "바로 시작하세요. 화자·주제 힌트는 필요할 때 추가하면 됩니다."
+          }
+        }
+      }
+    },
+    "Start recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 시작"
+          }
+        }
+      }
+    },
+    "Starts a recording without requiring hints": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts a recording without requiring hints"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트 없이 바로 녹음을 시작합니다"
+          }
+        }
+      }
+    },
+    "Stop": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중지"
+          }
+        }
+      }
+    },
+    "Stop recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 중지"
+          }
+        }
+      }
+    },
+    "Stop speaker sample": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop speaker sample"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 샘플 중지"
+          }
+        }
+      }
+    },
+    "Stop the recording before deleting this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the recording before deleting this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅을 삭제하려면 먼저 녹음을 중지하세요."
+          }
+        }
+      }
+    },
+    "Stops the current recording and starts local processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stops the current recording and starts local processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 녹음을 중지하고 로컬 처리를 시작합니다"
+          }
+        }
+      }
+    },
+    "Storage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소"
+          }
+        }
+      }
+    },
+    "Storage root has insufficient free space (%d bytes available).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage root has insufficient free space (%d bytes available)."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 루트의 여유 공간이 부족합니다 (%d바이트 남음)."
+          }
+        }
+      }
+    },
+    "Storage root is read-only. Choose a writable local folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage root is read-only. Choose a writable local folder."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 루트가 읽기 전용입니다. 쓰기 가능한 로컬 폴더를 선택하세요."
+          }
+        }
+      }
+    },
+    "Storage root is ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage root is ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 루트가 준비되었습니다."
+          }
+        }
+      }
+    },
+    "Storage root uses unsupported schema version %d.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage root uses unsupported schema version %d."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 루트가 지원되지 않는 스키마 버전 %d을(를) 사용합니다."
+          }
+        }
+      }
+    },
+    "Suggest with AI": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest with AI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 추천 받기"
+          }
+        }
+      }
+    },
+    "Summarizing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarizing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 중"
+          }
+        }
+      }
+    },
+    "Summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약"
+          }
+        }
+      }
+    },
+    "Summary agent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 에이전트"
+          }
+        }
+      }
+    },
+    "Summary correction": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary correction"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 수정"
+          }
+        }
+      }
+    },
+    "Summary retry needed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary retry needed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 재시도 필요"
+          }
+        }
+      }
+    },
+    "Summary stage needs a retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary stage needs a retry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 단계 재시도 필요"
+          }
+        }
+      }
+    },
+    "Summary unavailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary unavailable"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 없음"
+          }
+        }
+      }
+    },
+    "Summary will appear here": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary will appear here"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약이 여기에 표시됩니다"
+          }
+        }
+      }
+    },
+    "Sync %@ now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync %@ now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 지금 동기화"
+          }
+        }
+      }
+    },
+    "Sync automatically every hour": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync automatically every hour"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매시간 자동 동기화"
+          }
+        }
+      }
+    },
+    "Sync failed · will retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync failed · will retry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 실패 · 자동 재시도"
+          }
+        }
+      }
+    },
+    "Sync in progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync in progress"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 진행 중"
+          }
+        }
+      }
+    },
+    "Sync is blocked: its local state file is unwritable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync is blocked: its local state file is unwritable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화가 차단되었습니다: 로컬 상태 파일을 쓸 수 없습니다."
+          }
+        }
+      }
+    },
+    "Sync is paused until you sign in again from Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync is paused until you sign in again from Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 다시 로그인할 때까지 동기화가 일시 중지됩니다."
+          }
+        }
+      }
+    },
+    "Sync now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 동기화"
+          }
+        }
+      }
+    },
+    "Syncing...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 중..."
+          }
+        }
+      }
+    },
+    "System audio could not start safely. Keep local files if any were captured, then retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System audio could not start safely. Keep local files if any were captured, then retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오를 안전하게 시작하지 못했습니다. 캡처된 로컬 파일이 있으면 보존한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "The %@ CLI is unavailable or not signed in. Fix it in Settings, then retry the summary stage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The %@ CLI is unavailable or not signed in. Fix it in Settings, then retry the summary stage."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ CLI를 사용할 수 없거나 로그인되지 않았습니다. 설정에서 해결한 뒤 요약 단계를 재시도하세요."
+          }
+        }
+      }
+    },
+    "The SQLite index is derived from your local meeting files and can always be rebuilt from them. Rebuilding never changes a meeting file.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SQLite index is derived from your local meeting files and can always be rebuilt from them. Rebuilding never changes a meeting file."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SQLite 인덱스는 로컬 미팅 파일에서 파생되며 언제든 다시 만들 수 있습니다. 재구축은 미팅 파일을 변경하지 않습니다."
+          }
+        }
+      }
+    },
+    "The agent found no speaker it could support with transcript evidence.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent found no speaker it could support with transcript evidence."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 전사 근거로 뒷받침할 수 있는 화자를 찾지 못했습니다."
+          }
+        }
+      }
+    },
+    "The alias was not removed. Retry after checking local processing diagnostics.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The alias was not removed. Retry after checking local processing diagnostics."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별칭이 삭제되지 않았습니다. 로컬 처리 진단을 확인한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "The command-line tool for this service is not installed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command-line tool for this service is not installed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 서비스의 명령줄 도구가 설치되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "The correction was not saved. Check local storage and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The correction was not saved. Check local storage and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정 내용이 저장되지 않았습니다. 로컬 저장소를 확인하고 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The email was not saved. Check that it looks like a plain address and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The email was not saved. Check that it looks like a plain address and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일이 저장되지 않았습니다. 일반적인 주소 형식인지 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "The local speaker result could not be saved. Retry this card.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local speaker result could not be saved. Retry this card."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 화자 결과를 저장하지 못했습니다. 이 카드를 재시도하세요."
+          }
+        }
+      }
+    },
+    "The local speaker result was not changed. Retry this card after checking local processing diagnostics.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local speaker result was not changed. Retry this card after checking local processing diagnostics."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 화자 결과가 변경되지 않았습니다. 로컬 처리 진단을 확인한 뒤 이 카드를 재시도하세요."
+          }
+        }
+      }
+    },
+    "The local summary error could not be saved. Check local storage and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local summary error could not be saved. Check local storage and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 오류 상태를 저장하지 못했습니다. 로컬 저장소를 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "The login did not finish. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The login did not finish. Try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인이 완료되지 않았습니다. 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The meeting could not be deleted. Check local storage and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The meeting could not be deleted. Check local storage and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅을 삭제하지 못했습니다. 로컬 저장소를 확인하고 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The original local audio is unavailable, so this meeting cannot be reprocessed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original local audio is unavailable, so this meeting cannot be reprocessed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 로컬 오디오가 없어 이 미팅을 재처리할 수 없습니다."
+          }
+        }
+      }
+    },
+    "The profile note was not saved. The profile file stays unchanged; retry from this proposal.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile note was not saved. The profile file stays unchanged; retry from this proposal."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 메모가 저장되지 않았습니다. 프로필 파일은 그대로이며, 이 제안에서 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The profiles were not merged. Both profiles are unchanged; retry after checking local storage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profiles were not merged. Both profiles are unchanged; retry after checking local storage."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필이 합쳐지지 않았습니다. 두 프로필 모두 변경되지 않았으니 로컬 저장소를 확인한 뒤 재시도하세요."
+          }
+        }
+      }
+    },
+    "The recording is safe. Local processing will start when the queue is ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording is safe. Local processing will start when the queue is ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음은 안전하게 저장되었습니다. 큐가 준비되면 로컬 처리가 시작됩니다."
+          }
+        }
+      }
+    },
+    "The recording, transcript, and summary are removed from this Mac. This cannot be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording, transcript, and summary are removed from this Mac. This cannot be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음, 전사, 요약이 이 Mac에서 삭제됩니다. 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "The reviewed transcript is being summarized by your selected agent.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reviewed transcript is being summarized by your selected agent."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인된 전사를 선택한 에이전트가 요약하고 있습니다."
+          }
+        }
+      }
+    },
+    "The reviewed transcript is being summarized. The title updates automatically when it finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reviewed transcript is being summarized. The title updates automatically when it finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인된 전사를 요약하고 있습니다. 완료되면 제목이 자동으로 갱신됩니다."
+          }
+        }
+      }
+    },
+    "The service could not be reached. Sync retries automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The service could not be reached. Sync retries automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서비스에 연결할 수 없습니다. 동기화는 자동으로 재시도됩니다."
+          }
+        }
+      }
+    },
+    "The service is unavailable: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The service is unavailable: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서비스를 사용할 수 없습니다: %@"
+          }
+        }
+      }
+    },
+    "The sign-in expired. Connect again to resume sync.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in expired. Connect again to resume sync."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인이 만료되었습니다. 다시 연결하면 동기화가 재개됩니다."
+          }
+        }
+      }
+    },
+    "The summary and title are created after the speakers are confirmed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The summary and title are created after the speakers are confirmed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 확인이 끝나면 요약과 제목이 만들어집니다."
+          }
+        }
+      }
+    },
+    "The summary and title start automatically after the last speaker card is decided.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The summary and title start automatically after the last speaker card is decided."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 화자 카드가 결정되면 요약과 제목이 자동으로 시작됩니다."
+          }
+        }
+      }
+    },
+    "The summary step could not be prepared. Check local storage and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The summary step could not be prepared. Check local storage and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 단계를 준비하지 못했습니다. 로컬 저장소를 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "These hints are optional. Record now starts capture immediately whether or not you add them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These hints are optional. Record now starts capture immediately whether or not you add them."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 힌트는 선택 사항입니다. 지금 녹음은 힌트와 무관하게 즉시 시작됩니다."
+          }
+        }
+      }
+    },
+    "These profile note suggestions came from this meeting. Nothing is saved until you decide.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These profile note suggestions came from this meeting. Nothing is saved until you decide."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅에서 나온 인물 프로필 메모 제안이에요. 결정하기 전에는 아무것도 저장되지 않아요."
+          }
+        }
+      }
+    },
+    "This is me": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is me"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나예요"
+          }
+        }
+      }
+    },
+    "This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사용자 시작 작업은 필요한 Python 패키지, Whisper large-v3, Sherpa 화자분리 모델을 로컬 Damso 모델 폴더에 다운로드합니다. 미팅 데이터를 업로드하지 않습니다."
+          }
+        }
+      }
+    },
+    "Title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목"
+          }
+        }
+      }
+    },
+    "Top proposal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top proposal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1순위 제안"
+          }
+        }
+      }
+    },
+    "Topic": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Topic"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주제"
+          }
+        }
+      }
+    },
+    "Transcribed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사"
+          }
+        }
+      }
+    },
+    "Transcribing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 중"
+          }
+        }
+      }
+    },
+    "Transcribing on this Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribing on this Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 전사 중"
+          }
+        }
+      }
+    },
+    "Transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사"
+          }
+        }
+      }
+    },
+    "Transcript corrections": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript corrections"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 수정"
+          }
+        }
+      }
+    },
+    "Transcript is available after local processing completes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript is available after local processing completes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 처리가 끝나면 전사를 볼 수 있습니다."
+          }
+        }
+      }
+    },
+    "Untitled local meeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled local meeting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 없는 로컬 미팅"
+          }
+        }
+      }
+    },
+    "Use Record now, or connect a service under External Sync.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Record now, or connect a service under External Sync."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 녹음을 사용하거나 External Sync에서 서비스를 연결하세요."
+          }
+        }
+      }
+    },
+    "Use this folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this folder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더 사용"
+          }
+        }
+      }
+    },
+    "Used when you confirm a speaker as yourself: the meeting links to this person and their profile accumulates your meeting history, voice profile, and notes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used when you confirm a speaker as yourself: the meeting links to this person and their profile accumulates your meeting history, voice profile, and notes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자를 '나'로 확인할 때 사용되는 이름입니다. 미팅이 이 사람에게 연결되고, 프로필에 미팅 이력·음성 프로필·노트가 쌓입니다."
+          }
+        }
+      }
+    },
+    "Voice profile moves to the kept name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice profile moves to the kept name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 프로필이 남길 이름으로 이동합니다"
+          }
+        }
+      }
+    },
+    "Voice profile: the kept name's voice profile stays; the absorbed one remains in the archive": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice profile: the kept name's voice profile stays; the absorbed one remains in the archive"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 프로필: 남길 이름의 프로필이 유지되고, 흡수되는 쪽은 아카이브에 보존됩니다"
+          }
+        }
+      }
+    },
+    "Wait for local processing to finish before deleting this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for local processing to finish before deleting this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅을 삭제하려면 로컬 처리가 끝날 때까지 기다리세요."
+          }
+        }
+      }
+    },
+    "Waiting for local transcription and speaker separation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for local transcription and speaker separation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사와 화자 분리를 기다리는 중입니다."
+          }
+        }
+      }
+    },
+    "Waiting for recording permissions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for recording permissions"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 권한 대기 중"
+          }
+        }
+      }
+    },
+    "Waiting for the browser sign-in...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the browser sign-in..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 로그인 대기 중..."
+          }
+        }
+      }
+    },
+    "Waiting for the first sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the first sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 동기화 대기 중"
+          }
+        }
+      }
+    },
+    "Waiting to process": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to process"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리 대기 중"
+          }
+        }
+      }
+    },
+    "Waiting to transcribe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to transcribe"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 대기 중"
+          }
+        }
+      }
+    },
+    "Watches for Zoom app meetings and Meet/Zoom tabs in Chrome, Dia, Arc, and Safari via microphone activity. Nothing is recorded until you press Record.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watches for Zoom app meetings and Meet/Zoom tabs in Chrome, Dia, Arc, and Safari via microphone activity. Nothing is recorded until you press Record."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 사용 신호로 Zoom 앱과 Chrome/Dia/Arc/Safari의 Meet·Zoom 탭 미팅을 감시합니다. [녹음]을 누르기 전에는 아무것도 기록되지 않습니다."
+          }
+        }
+      }
+    },
+    "Watching for meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watching for meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 감지 대기 중"
+          }
+        }
+      }
+    },
+    "What transfers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What transfers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이관되는 항목"
+          }
+        }
+      }
+    },
+    "Whisper is creating the transcript and Sherpa is separating speakers locally.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper is creating the transcript and Sherpa is separating speakers locally."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper가 전사를 만들고 Sherpa가 화자를 분리하고 있습니다 (모두 로컬)."
+          }
+        }
+      }
+    },
+    "Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper large-v3가 오디오를 전사하고 Sherpa가 화자를 분리합니다 (모두 이 Mac에서). 설치 중 미팅 오디오·전사·Plaud 세션·자격증명은 업로드되지 않습니다."
+          }
+        }
+      }
+    },
+    "Your recording is still stored locally. Retry processing after checking the recovery message above.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recording is still stored locally. Retry processing after checking the recovery message above."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음은 여전히 로컬에 저장되어 있습니다. 위 복구 안내를 확인한 뒤 처리를 재시도하세요."
+          }
+        }
+      }
+    },
+    "checking...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 중..."
+          }
+        }
+      }
+    },
+    "complete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "complete"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        }
+      }
+    },
+    "confirmed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "confirmed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확정됨"
+          }
+        }
+      }
+    },
+    "failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패"
+          }
+        }
+      }
+    },
+    "in progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in progress"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중"
+          }
+        }
+      }
+    },
+    "pending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pending"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기"
+          }
+        }
+      }
+    },
+    "voice profile ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "voice profile ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 프로필 있음"
+          }
+        }
+      }
+    },
+    "“%@” is archived under peoples/archive before anything moves. Restore = move the folder back and rebuild the index.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is archived under peoples/archive before anything moves. Restore = move the folder back and rebuild the index."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 프로필은 이관 전에 peoples/archive에 보관됩니다. 복원은 폴더를 되돌린 뒤 인덱스를 재구축하면 됩니다."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,4 @@
+[console_scripts]
+damso-model-setup = damso.model_setup:main
+damso-processing = damso.processing:main
+damso-storage = damso.migration:main
