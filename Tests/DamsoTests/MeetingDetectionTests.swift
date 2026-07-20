@@ -24,6 +24,18 @@ struct MeetingDetectionEngineTests {
     }
 
     @Test
+    func meetingIdentityIgnoresQueryAndFragmentNoise() {
+        #expect(
+            MeetingDetectionEngine.meetingIdentity(forURL: "https://meet.google.com/abc-defg-hij?authuser=1#chat")
+                == MeetingDetectionEngine.meetingIdentity(forURL: "https://meet.google.com/abc-defg-hij")
+        )
+        #expect(
+            MeetingDetectionEngine.meetingIdentity(forURL: "https://us02web.zoom.us/wc/123/start?from=join")
+                == MeetingDetectionEngine.meetingIdentity(forURL: "https://us02web.zoom.us/wc/123/start")
+        )
+    }
+
+    @Test
     func nonMeetingMicUseIsIgnored() {
         // Voice memos and other apps using the mic never count as a meeting.
         let snapshot = MeetingDetectionSnapshot(
@@ -96,6 +108,30 @@ struct MeetingDetectionEngineTests {
         let detected = MeetingDetectionEngine.detect(snapshot)
         #expect(detected.count == 1)
         #expect(detected.first?.tabID == "first")
+    }
+
+    @Test
+    func activeMeetingTabWinsOverAnEarlierStaleMeetingTab() {
+        let stale = BrowserTabSnapshot(
+            id: "old",
+            title: "이전 미팅",
+            url: "https://meet.google.com/old-room-code"
+        )
+        let current = BrowserTabSnapshot(
+            id: "new",
+            title: "현재 미팅",
+            url: "https://meet.google.com/new-room-code",
+            isActive: true
+        )
+        let snapshot = MeetingDetectionSnapshot(
+            micProcesses: [mic("com.google.Chrome")],
+            zoomAppInMeeting: false,
+            tabsByApp: [.chrome: [stale, current]]
+        )
+
+        let detected = MeetingDetectionEngine.detect(snapshot)
+        #expect(detected.first?.tabID == "new")
+        #expect(detected.first?.meetingID == "meet:new-room-code")
     }
 
     @Test
@@ -221,25 +257,130 @@ struct MeetingDetectionSessionTests {
     }
 
     @Test
-    func ignoredPromptStaysAvailableForLateStart() {
+    func ignoredPromptDisappearsAndStaysSuppressedForTheSameMeeting() {
         var machine = MeetingSessionStateMachine()
         _ = machine.observe(sources: [chrome], at: at(0))
-        // Meeting runs on; no re-prompt, panel state remains prompting.
-        _ = machine.observe(sources: [chrome], at: at(600))
-        guard case .prompting(let session, _) = machine.state else {
-            Issue.record("expected prompting")
-            return
-        }
-        #expect(session.firstDetectedAt == at(0))
+        machine.ignorePrompt()
+        #expect(machine.state == .idle)
 
-        // Late start mid-meeting records from now on.
-        let effects = machine.approveRecording(at: at(700))
-        #expect(effects.count == 1)
-        guard case .recording(let recording) = machine.state else {
-            Issue.record("expected recording")
+        _ = machine.observe(sources: [chrome], at: at(600))
+        #expect(machine.state == .idle)
+    }
+
+    @Test
+    func aDifferentMeetingPromptsImmediatelyWhileTheIgnoredMeetingIsStillOpen() {
+        let other = DetectedMeetingSource(
+            app: .chrome,
+            service: .meet,
+            titleHint: "Chrome · 다른 미팅",
+            tabID: "84",
+            meetingID: "meet.google.com/other-room"
+        )
+        var machine = MeetingSessionStateMachine()
+        _ = machine.observe(sources: [chrome], at: at(0))
+        machine.ignorePrompt()
+
+        _ = machine.observe(sources: [chrome, other], at: at(5))
+        guard case .prompting(let session, _) = machine.state else {
+            Issue.record("expected the different meeting to prompt")
             return
         }
-        #expect(recording.recordingStartedAt == at(700))
+        #expect(session.representative == other)
+        #expect(session.sources == [other])
+    }
+
+    @Test
+    func theSameRoomInAnotherBrowserPromptsAfterIgnoringThePreviousBrowser() {
+        let dia = DetectedMeetingSource(
+            app: .dia,
+            service: .meet,
+            titleHint: "Dia · 주간 싱크",
+            tabID: "dia-tab",
+            meetingID: "meet:abc-defg-hij"
+        )
+        let chrome = DetectedMeetingSource(
+            app: .chrome,
+            service: .meet,
+            titleHint: "Chrome · 주간 싱크",
+            tabID: "chrome-tab",
+            meetingID: "meet:abc-defg-hij"
+        )
+        var machine = MeetingSessionStateMachine()
+        _ = machine.observe(sources: [dia], at: at(0))
+        machine.ignorePrompt()
+
+        _ = machine.observe(sources: [chrome], at: at(5))
+
+        guard case .prompting(let session, _) = machine.state else {
+            Issue.record("the same room in a different browser should prompt")
+            return
+        }
+        #expect(session.representative == chrome)
+    }
+
+    @Test
+    func ignoredMeetingCanPromptAgainAfterItActuallyEnds() {
+        var machine = MeetingSessionStateMachine(promptDismissGraceSeconds: 60)
+        _ = machine.observe(sources: [chrome], at: at(0))
+        machine.ignorePrompt()
+        _ = machine.observe(sources: [], at: at(10))
+        _ = machine.observe(sources: [], at: at(71))
+        #expect(machine.state == .idle)
+
+        _ = machine.observe(sources: [chrome], at: at(72))
+        guard case .prompting = machine.state else {
+            Issue.record("ended meeting should be eligible for a future prompt")
+            return
+        }
+    }
+
+    @Test
+    func ignoredMeetingIdentitySurvivesTabAndTitleChanges() {
+        let first = DetectedMeetingSource(
+            app: .chrome,
+            service: .meet,
+            titleHint: "Chrome · 입장 중",
+            tabID: "42",
+            meetingID: "meet.google.com/abc-defg-hij"
+        )
+        let updated = DetectedMeetingSource(
+            app: .chrome,
+            service: .meet,
+            titleHint: "Chrome · 주간 싱크",
+            tabID: "99",
+            meetingID: "meet.google.com/abc-defg-hij"
+        )
+        var machine = MeetingSessionStateMachine()
+        _ = machine.observe(sources: [first], at: at(0))
+        machine.ignorePrompt()
+        _ = machine.observe(sources: [updated], at: at(5))
+
+        #expect(machine.state == .idle)
+    }
+
+    @Test
+    func multipleIgnoredMeetingsRemainSuppressedTogether() {
+        let other = DetectedMeetingSource(
+            app: .chrome,
+            service: .meet,
+            titleHint: "Chrome · 다른 미팅",
+            tabID: "84",
+            meetingID: "meet:other-room"
+        )
+        var machine = MeetingSessionStateMachine()
+        _ = machine.observe(sources: [chrome], at: at(0))
+        machine.ignorePrompt()
+
+        _ = machine.observe(sources: [chrome, other], at: at(5))
+        guard case .prompting(let session, _) = machine.state else {
+            Issue.record("expected the second meeting to prompt")
+            return
+        }
+        #expect(session.representative == other)
+        machine.ignorePrompt()
+
+        _ = machine.observe(sources: [chrome, other], at: at(10))
+        #expect(machine.state == .idle)
     }
 
     @Test
@@ -343,7 +484,7 @@ struct MeetingDetectionSessionTests {
 
 /// `chromux tabs` force-launches the user's real Chrome on a cold start, so
 /// every passive surface (detection loop, menu bar card, Settings) must gate
-/// on the ps-based relay status, which never launches anything.
+/// on a status path that never launches anything.
 struct ChromuxLivePairingParseTests {
     @Test
     func connectedLiveRelayIsRecognized() {
@@ -373,13 +514,60 @@ struct ChromuxLivePairingParseTests {
         #expect(!ChromuxLivePairing.parse(nil).relayConnected)
         #expect(!ChromuxLivePairing.parse(Data("not json".utf8)).relayConnected)
     }
+
+    @Test
+    func missingLivePSRowFallsBackToTheVerifiedLocalBridge() {
+        let observedPS = """
+        {"ok": true, "profiles": [
+            {"profile": "default", "status": "running", "launchMode": "headed"}
+        ]}
+        """
+        let bridgeVersion = """
+        {"Browser": "chromux-live-bridge", "Protocol-Version": "1.3"}
+        """
+        let relayStatus = """
+        {"extensionConnected": true, "killSwitchAt": null, "tabs": 61}
+        """
+
+        let status = ChromuxLivePairing.resolve(
+            psData: Data(observedPS.utf8),
+            bridgeVersionData: Data(bridgeVersion.utf8),
+            relayStatusData: Data(relayStatus.utf8)
+        )
+
+        #expect(status.relayConnected)
+    }
+
+    @Test
+    func localPortMustIdentifyAConnectedChromuxBridge() {
+        let observedPS = """
+        {"ok": true, "profiles": [{"profile": "default", "status": "running"}]}
+        """
+        let unrelatedServer = """
+        {"Browser": "unrelated-local-service"}
+        """
+        let killedRelay = """
+        {"extensionConnected": true, "killSwitchAt": 1234}
+        """
+
+        #expect(!ChromuxLivePairing.resolve(
+            psData: Data(observedPS.utf8),
+            bridgeVersionData: Data(unrelatedServer.utf8),
+            relayStatusData: Data("{\"extensionConnected\": true}".utf8)
+        ).relayConnected)
+        #expect(!ChromuxLivePairing.resolve(
+            psData: Data(observedPS.utf8),
+            bridgeVersionData: Data("{\"Browser\": \"chromux-live-bridge\"}".utf8),
+            relayStatusData: Data(killedRelay.utf8)
+        ).relayConnected)
+    }
 }
 
 // MARK: - Chrome probe fallback (chromux optional)
 
 private struct StubTabProbe: BrowserTabProbing {
     let result: [BrowserTabSnapshot]
-    func tabs() async -> [BrowserTabSnapshot] { result }
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot] { result }
 }
 
 /// chromux pairing is optional: with the relay connected the chromux listing
@@ -388,13 +576,100 @@ private struct StubTabProbe: BrowserTabProbing {
 /// from capture attachment.
 struct ChromeTabProbeFallbackTests {
     @Test
+    func audioHelperPIDResolvesToItsTopLevelBrowserProcess() {
+        let parents: [Int32: Int32] = [82_484: 677, 677: 1]
+        #expect(ProcessAncestry.rootProcessID(startingAt: 82_484, parentOf: { parents[$0] }) == 677)
+    }
+
+    @Test
+    func micOwningChromeInstanceWinsOverTheAmbiguousGenericAppleScriptTarget() {
+        let personalMeet = BrowserTabSnapshot(
+            id: "applescript:chrome:677:0",
+            title: "Meet - cij-gwrn-stk",
+            url: "https://meet.google.com/cij-gwrn-stk",
+            isActive: true
+        )
+        let isolatedBrowserTab = BrowserTabSnapshot(
+            id: "applescript:chrome:96040:0",
+            title: "AI Crawler Arena",
+            url: "https://airena.lol/battles/23"
+        )
+
+        let selected = ChromiumPIDTabSelection.select(
+            preferredApplicationPIDs: [677],
+            tabsByApplicationPID: [677: [personalMeet], 96_040: [isolatedBrowserTab]],
+            genericTabs: [isolatedBrowserTab]
+        )
+
+        #expect(selected == [personalMeet])
+    }
+
+    @Test
     func chromuxListingWinsWhenAvailable() async {
         let chromuxTab = BrowserTabSnapshot(id: "412", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
+        let appleScriptTab = BrowserTabSnapshot(id: "applescript:chrome:0", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
         let probe = ChromeTabProbe(
             primary: StubTabProbe(result: [chromuxTab]),
-            fallback: StubTabProbe(result: [BrowserTabSnapshot(id: "applescript:0", title: "x", url: "https://example.com")])
+            fallback: StubTabProbe(result: [appleScriptTab])
         )
         #expect(await probe.tabs() == [chromuxTab])
+    }
+
+    @Test
+    func aMeetingInAnotherPairedBrowserCannotMaskTheExpectedBrowserMeeting() async {
+        let pairedDiaMeeting = BrowserTabSnapshot(id: "412", title: "Dia Meet", url: "https://meet.google.com/dia-room")
+        let chromeMeeting = BrowserTabSnapshot(id: "applescript:chrome:0", title: "Chrome Meet", url: "https://meet.google.com/chrome-room")
+        let probe = ChromeTabProbe(
+            primary: StubTabProbe(result: [pairedDiaMeeting]),
+            fallback: StubTabProbe(result: [chromeMeeting])
+        )
+
+        #expect(await probe.tabs() == [chromeMeeting])
+    }
+
+    @Test
+    func aSharedStaleRoomInAnotherBrowserCannotRemoveTheNewActiveMeeting() async {
+        let pairedOldMeeting = BrowserTabSnapshot(
+            id: "412",
+            title: "Paired old room",
+            url: "https://meet.google.com/old-room"
+        )
+        let browserOldMeeting = BrowserTabSnapshot(
+            id: "applescript:chrome:0",
+            title: "Chrome old room",
+            url: "https://meet.google.com/old-room"
+        )
+        let browserNewMeeting = BrowserTabSnapshot(
+            id: "applescript:chrome:1",
+            title: "Chrome new room",
+            url: "https://meet.google.com/new-room",
+            isActive: true
+        )
+        let probe = ChromeTabProbe(
+            primary: StubTabProbe(result: [pairedOldMeeting]),
+            fallback: StubTabProbe(result: [browserOldMeeting, browserNewMeeting])
+        )
+
+        let tabs = await probe.tabs()
+        #expect(tabs.map(\.id) == ["412", "applescript:chrome:1"])
+        let snapshot = MeetingDetectionSnapshot(
+            micProcesses: [MicProcessSnapshot(bundleID: "com.google.Chrome.helper", isRunningInput: true)],
+            zoomAppInMeeting: false,
+            tabsByApp: [.chrome: tabs]
+        )
+        #expect(MeetingDetectionEngine.detect(snapshot).first?.meetingID == "meet:new-room")
+    }
+
+    @Test
+    func nonMeetingChromuxTabsDoNotMaskTheBrowserMeetingFallback() async {
+        let unrelatedChromuxTab = BrowserTabSnapshot(id: "412", title: "Docs", url: "https://docs.google.com/document/d/1")
+        let browserMeeting = BrowserTabSnapshot(id: "applescript:chrome:0", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
+        let probe = ChromeTabProbe(
+            primary: StubTabProbe(result: [unrelatedChromuxTab]),
+            fallback: StubTabProbe(result: [browserMeeting])
+        )
+
+        #expect(await probe.tabs() == [browserMeeting])
     }
 
     @Test
@@ -414,5 +689,13 @@ struct ChromeTabProbeFallbackTests {
         #expect(detected.first?.service == .meet)
         // ...while its id stays recognizable as non-attachable for capture.
         #expect(detected.first?.tabID?.hasPrefix(ChromeAppleScriptTabProbe.idPrefix) == true)
+    }
+
+    @Test
+    func diaDetectionFallsBackWhenChromuxIsUnavailable() async {
+        let fallbackTab = BrowserTabSnapshot(id: "applescript:dia:0", title: "Meet", url: "https://meet.google.com/abc-defg-hij")
+        let probe = ChromeTabProbe(primary: StubTabProbe(result: []), fallback: StubTabProbe(result: [fallbackTab]))
+
+        #expect(await probe.tabs() == [fallbackTab])
     }
 }

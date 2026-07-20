@@ -4,10 +4,9 @@ import SwiftUI
 /// What the floating panel is currently showing. Purely presentational; the
 /// detection coordinator derives it from the session state machine.
 enum MeetingPromptPanelPhase: Equatable {
-    /// Meeting detected, recording not started. `collapsed` is the post-[무시]
-    /// look: the panel stays one row for late start but drops the ignore
-    /// button and dims.
-    case proposal(titleHint: String, app: MeetingSourceApp, collapsed: Bool)
+    /// Meeting detected, recording not started. Proposals always use the same
+    /// full card; [무시] hides the panel instead of changing its shape.
+    case proposal(titleHint: String, app: MeetingSourceApp)
     /// Recording in progress: elapsed time, live participant count, and the
     /// pairing hint when chromux capture is unavailable.
     case recording(startedAt: Date, participantCount: Int?, showPairingHint: Bool)
@@ -100,13 +99,6 @@ struct MeetingPromptPanelView: View {
             switch model.phase {
             case .none:
                 EmptyView()
-            case .proposal(let titleHint, let app, true):
-                // Post-[무시]: stay out of the way with the dimmed one-row
-                // late-start affordance instead of the full card.
-                collapsedProposalRow(titleHint: titleHint, app: app)
-                    .padding(.horizontal, DamsoTokens.spacingSM)
-                    .padding(.vertical, DamsoTokens.spacingXS)
-                    .background(panelChrome)
             case .some(let phase):
                 MeetingPanelCardView(phase: phase, actions: model.actions)
                     .background(panelChrome)
@@ -125,22 +117,6 @@ struct MeetingPromptPanelView: View {
             )
     }
 
-    private func collapsedProposalRow(titleHint: String, app: MeetingSourceApp) -> some View {
-        HStack(spacing: DamsoTokens.spacingXS) {
-            Image(systemName: app == .zoomApp ? "video.fill" : "globe")
-                .font(.body)
-                .foregroundStyle(DamsoTokens.inkSecondary)
-                .accessibilityLabel(app.displayName)
-            Text(titleHint)
-                .font(.callout)
-                .foregroundStyle(DamsoTokens.inkSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 220, alignment: .leading)
-            Button(Loc.tr("Record")) { model.actions.record() }
-                .buttonStyle(CompactPanelButtonStyle(rank: .primary))
-        }
-    }
 }
 
 // MARK: - Shared card
@@ -208,7 +184,7 @@ struct MeetingPanelCardView: View {
         switch phase {
         case .none:
             idleBody
-        case .proposal(let titleHint, let app, _):
+        case .proposal(let titleHint, let app):
             proposalBody(titleHint: titleHint, app: app)
         case .recording(let startedAt, let participantCount, let showPairingHint):
             recordingBody(startedAt: startedAt, participantCount: participantCount, showPairingHint: showPairingHint)
@@ -439,51 +415,5 @@ struct PanelIconButtonStyle: ButtonStyle {
             .frame(width: 24, height: 24)
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.6 : 1)
-    }
-}
-
-/// Smaller sibling of DamsoPillButtonStyle sized for the collapsed
-/// one-row panel (the standard pill would be taller than a notification
-/// banner row).
-struct CompactPanelButtonStyle: ButtonStyle {
-    enum Rank {
-        case primary
-        case secondary
-        case critical
-    }
-
-    var rank: Rank
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .foregroundStyle(foreground)
-            .background(Capsule().fill(background))
-            .overlay(
-                Capsule().strokeBorder(border, lineWidth: rank == .secondary ? 1 : 0)
-            )
-            .opacity(configuration.isPressed ? 0.75 : 1)
-    }
-
-    private var foreground: Color {
-        switch rank {
-        case .primary: DamsoTokens.canvas
-        case .secondary: DamsoTokens.ink
-        case .critical: DamsoTokens.canvas
-        }
-    }
-
-    private var background: Color {
-        switch rank {
-        case .primary: DamsoTokens.ink
-        case .secondary: DamsoTokens.canvas
-        case .critical: DamsoTokens.critical
-        }
-    }
-
-    private var border: Color {
-        DamsoTokens.ink.opacity(0.9)
     }
 }

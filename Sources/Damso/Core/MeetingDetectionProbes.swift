@@ -1,6 +1,21 @@
 import AppKit
 import CoreAudio
+import Darwin
 import Foundation
+import ScriptingBridge
+
+enum ChromiumPIDTabSelection {
+    static func select(
+        preferredApplicationPIDs: Set<Int32>,
+        tabsByApplicationPID: [Int32: [BrowserTabSnapshot]],
+        genericTabs: [BrowserTabSnapshot]
+    ) -> [BrowserTabSnapshot] {
+        let targetedTabs = preferredApplicationPIDs.sorted().flatMap {
+            tabsByApplicationPID[$0] ?? []
+        }
+        return targetedTabs.isEmpty ? genericTabs : targetedTabs
+    }
+}
 
 /// Reports which processes are currently capturing microphone input.
 protocol MicActivityProbing: Sendable {
@@ -15,7 +30,13 @@ protocol ZoomAppMeetingProbing: Sendable {
 /// Lists open tabs for one browser. Failures degrade to an empty list; tab
 /// probes must never block or crash detection (guardrail G6).
 protocol BrowserTabProbing: Sendable {
-    func tabs() async -> [BrowserTabSnapshot]
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot]
+}
+
+extension BrowserTabProbing {
+    func tabs() async -> [BrowserTabSnapshot] {
+        await tabs(preferredApplicationPIDs: [])
+    }
 }
 
 // MARK: - CoreAudio process-level microphone monitoring
@@ -28,7 +49,12 @@ struct CoreAudioMicActivityProbe: MicActivityProbing {
         for object in processObjects() {
             guard isRunningInput(object) else { continue }
             guard let bundleID = bundleID(object), !bundleID.isEmpty else { continue }
-            snapshots.append(MicProcessSnapshot(bundleID: bundleID, isRunningInput: true))
+            let applicationProcessID = processID(object).flatMap(ProcessAncestry.rootProcessID)
+            snapshots.append(MicProcessSnapshot(
+                bundleID: bundleID,
+                isRunningInput: true,
+                applicationProcessID: applicationProcessID
+            ))
         }
         return snapshots
     }
@@ -67,6 +93,20 @@ struct CoreAudioMicActivityProbe: MicActivityProbing {
         return value as String
     }
 
+    private func processID(_ object: AudioObjectID) -> Int32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyPID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize = UInt32(MemoryLayout<pid_t>.size)
+        var value: pid_t = 0
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &dataSize, &value) == noErr,
+              value > 0
+        else { return nil }
+        return value
+    }
+
     private func isRunningInput(_ object: AudioObjectID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioProcessPropertyIsRunningInput,
@@ -79,6 +119,38 @@ struct CoreAudioMicActivityProbe: MicActivityProbing {
             return false
         }
         return value != 0
+    }
+}
+
+enum ProcessAncestry {
+    static func rootProcessID(startingAt processID: Int32) -> Int32? {
+        rootProcessID(startingAt: processID) { parentProcessID(of: $0) }
+    }
+
+    static func rootProcessID(
+        startingAt processID: Int32,
+        parentOf: (Int32) -> Int32?
+    ) -> Int32? {
+        guard processID > 0 else { return nil }
+        var current = processID
+        var visited: Set<Int32> = []
+        while visited.insert(current).inserted,
+              let parent = parentOf(current),
+              parent > 1,
+              parent != current {
+            current = parent
+        }
+        return current
+    }
+
+    private static func parentProcessID(of processID: Int32) -> Int32? {
+        var info = proc_bsdinfo()
+        let size = MemoryLayout<proc_bsdinfo>.stride
+        let result = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(processID, PROC_PIDTBSDINFO, 0, $0, Int32(size))
+        }
+        guard result == size else { return nil }
+        return Int32(info.pbi_ppid)
     }
 }
 
@@ -105,22 +177,33 @@ struct SystemZoomAppMeetingProbe: ZoomAppMeetingProbing {
 
 // MARK: - Browser tab probes
 
-/// Passive chromux live-pairing status read from `chromux ps --json`: it
-/// only inspects the already-running daemon's state. This is the mandatory
-/// gate before `chromux tabs`, because `chromux tabs` force-launches the
-/// user's real Chrome to connect the relay on a cold start — a background
-/// probe or a menu bar card must never do that.
+/// Passive chromux live-pairing status. `chromux ps --json` is the primary
+/// source, with a loopback-only bridge check for an already-running live
+/// relay whose daemon state file has gone missing. Neither path launches a
+/// browser. This is the mandatory gate before `chromux tabs`, because that
+/// command may launch the user's configured browser on a cold start.
 enum ChromuxLivePairing {
     struct Status: Equatable {
         var relayConnected: Bool
     }
 
     static func status(timeoutSeconds: TimeInterval = 5) async -> Status {
-        let data = await MeetingProbeSubprocess.run(
+        let psData = await MeetingProbeSubprocess.run(
             arguments: ["chromux", "ps", "--json"],
             timeoutSeconds: timeoutSeconds
         )
-        return parse(data)
+        let psStatus = parse(psData)
+        if psStatus.relayConnected { return psStatus }
+
+        guard let port = configuredLivePort() else { return psStatus }
+        let versionData = await fetchLoopback(port: port, path: "/json/version")
+        guard bridgeVersionIsValid(versionData) else { return psStatus }
+        let relayStatusData = await fetchLoopback(port: port, path: "/relay/status")
+        return resolve(
+            psData: psData,
+            bridgeVersionData: versionData,
+            relayStatusData: relayStatusData
+        )
     }
 
     static func parse(_ data: Data?) -> Status {
@@ -130,6 +213,63 @@ enum ChromuxLivePairing {
               let live = profiles.first(where: { ($0["profile"] as? String) == "live" })
         else { return Status(relayConnected: false) }
         return Status(relayConnected: (live["extension"] as? String) == "connected")
+    }
+
+    /// Resolves the exact degraded runtime shape where `chromux ps` omits
+    /// the live row even though the authenticated local bridge is healthy.
+    /// Kept pure so the observed JSON can be locked down in a regression test.
+    static func resolve(
+        psData: Data?,
+        bridgeVersionData: Data?,
+        relayStatusData: Data?
+    ) -> Status {
+        let psStatus = parse(psData)
+        if psStatus.relayConnected { return psStatus }
+        guard bridgeVersionIsValid(bridgeVersionData),
+              let relayStatusData,
+              let relay = try? JSONSerialization.jsonObject(with: relayStatusData) as? [String: Any],
+              relay["extensionConnected"] as? Bool == true
+        else { return Status(relayConnected: false) }
+        if let killSwitch = relay["killSwitchAt"], !(killSwitch is NSNull) {
+            return Status(relayConnected: false)
+        }
+        return Status(relayConnected: true)
+    }
+
+    private static func bridgeVersionIsValid(_ data: Data?) -> Bool {
+        guard let data,
+              let version = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return version["Browser"] as? String == "chromux-live-bridge"
+    }
+
+    private static func configuredLivePort() -> Int? {
+        let environment = ProcessInfo.processInfo.environment
+        let root: URL
+        if let override = environment["CHROMUX_HOME"], !override.isEmpty {
+            root = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            root = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".chromux", isDirectory: true)
+        }
+        let configURL = root.appendingPathComponent("live.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let port = config["port"] as? Int,
+              (1...65_535).contains(port)
+        else { return nil }
+        return port
+    }
+
+    private static func fetchLoopback(port: Int, path: String) async -> Data? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 1
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              http.statusCode == 200
+        else { return nil }
+        return data
     }
 }
 
@@ -141,7 +281,7 @@ enum ChromuxLivePairing {
 struct ChromuxTabProbe: BrowserTabProbing {
     var timeoutSeconds: TimeInterval = 5
 
-    func tabs() async -> [BrowserTabSnapshot] {
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot] {
         guard await ChromuxLivePairing.status(timeoutSeconds: timeoutSeconds).relayConnected else { return [] }
         guard let data = await MeetingProbeSubprocess.run(
             arguments: ["chromux", "tabs", "--json"],
@@ -151,33 +291,61 @@ struct ChromuxTabProbe: BrowserTabProbing {
             var tabId: Int
             var title: String?
             var url: String?
+            var active: Bool?
         }
         guard let parsed = try? JSONDecoder().decode([ChromuxTab].self, from: data) else { return [] }
         return parsed.compactMap { tab in
             guard let url = tab.url, !url.isEmpty else { return nil }
-            return BrowserTabSnapshot(id: String(tab.tabId), title: tab.title ?? "", url: url)
+            return BrowserTabSnapshot(
+                id: String(tab.tabId),
+                title: tab.title ?? "",
+                url: url,
+                isActive: tab.active ?? false
+            )
         }
     }
 }
 
-/// Lists Chrome tabs via AppleScript (Automation permission), so Meet/Zoom
-/// tab detection works out of the box without chromux pairing. Only queried
-/// while Chrome is already running so the probe never launches it. Tab ids
-/// carry an "applescript:" prefix because they are not chromux tab ids and
-/// must never be used for capture attachment.
-struct ChromeAppleScriptTabProbe: BrowserTabProbing {
+/// Lists a scriptable Chromium browser's tabs via Apple Events (Automation
+/// permission), so meeting detection works without chromux pairing. The
+/// microphone-owning PID is targeted first to distinguish personal Chrome
+/// from an isolated chromux Chrome; generic AppleScript remains the fallback.
+/// Only queried while that browser is already running, so the probe never
+/// launches it. Apple Event tab ids must never be used for capture.
+struct ChromiumAppleScriptTabProbe: BrowserTabProbing {
     static let idPrefix = "applescript:"
+    var applicationName = "Google Chrome"
+    var bundleIdentifier = "com.google.Chrome"
+    var browserID = "chrome"
     var timeoutSeconds: TimeInterval = 5
 
-    func tabs() async -> [BrowserTabSnapshot] {
-        let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.google.Chrome" }
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot] {
+        let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleIdentifier }
         guard running else { return [] }
+        var tabsByApplicationPID: [Int32: [BrowserTabSnapshot]] = [:]
+        for processID in preferredApplicationPIDs {
+            let tabs = await targetedTabs(processID: processID)
+            if !tabs.isEmpty {
+                tabsByApplicationPID[processID] = tabs
+            }
+        }
+        let targeted = ChromiumPIDTabSelection.select(
+            preferredApplicationPIDs: preferredApplicationPIDs,
+            tabsByApplicationPID: tabsByApplicationPID,
+            genericTabs: []
+        )
+        if !targeted.isEmpty { return targeted }
+
         let script = """
         set out to ""
-        tell application "Google Chrome"
+        tell application "\(applicationName)"
+            set windowIndex to 0
             repeat with w in windows
+                set windowIndex to windowIndex + 1
+                set activeID to id of active tab of w
                 repeat with t in tabs of w
-                    set out to out & (URL of t) & "\\t" & (title of t) & linefeed
+                    set isActive to (windowIndex is 1) and ((id of t) is activeID)
+                    set out to out & (URL of t) & "\\t" & (title of t) & "\\t" & isActive & linefeed
                 end repeat
             end repeat
         end tell
@@ -188,25 +356,93 @@ struct ChromeAppleScriptTabProbe: BrowserTabProbing {
             timeoutSeconds: timeoutSeconds
         ), let output = String(data: data, encoding: .utf8) else { return [] }
         return output.split(separator: "\n").enumerated().compactMap { index, line in
-            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
             guard let url = parts.first.map(String.init), url.hasPrefix("http") else { return nil }
             let title = parts.count > 1 ? String(parts[1]) : ""
-            return BrowserTabSnapshot(id: "\(Self.idPrefix)\(index)", title: title, url: url)
+            let isActive = parts.count > 2 && parts[2] == "true"
+            return BrowserTabSnapshot(
+                id: "\(Self.idPrefix)\(browserID):\(index)",
+                title: title,
+                url: url,
+                isActive: isActive
+            )
         }
+    }
+
+    private func targetedTabs(processID: Int32) async -> [BrowserTabSnapshot] {
+        let browserID = browserID
+        let timeoutSeconds = timeoutSeconds
+        return await Task.detached(priority: .utility) {
+            Self.readTargetedTabs(
+                processID: processID,
+                browserID: browserID,
+                timeoutSeconds: timeoutSeconds
+            )
+        }.value
+    }
+
+    private static func readTargetedTabs(
+        processID: Int32,
+        browserID: String,
+        timeoutSeconds: TimeInterval
+    ) -> [BrowserTabSnapshot] {
+        guard let application = SBApplication(processIdentifier: processID), application.isRunning else { return [] }
+        application.timeout = Int(timeoutSeconds * 60)
+        guard let windows = application.value(forKey: "windows") as? [SBObject] else { return [] }
+        var result: [BrowserTabSnapshot] = []
+        for (windowIndex, window) in windows.enumerated() {
+            guard let tabs = window.value(forKey: "tabs") as? [SBObject] else { continue }
+            let activeTab = window.value(forKey: "activeTab") as? SBObject
+            let activeID = activeTab?.value(forKey: "id") as? NSNumber
+            let activeURL = activeTab?.value(forKey: "URL") as? String
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let url = tab.value(forKey: "URL") as? String, url.hasPrefix("http") else { continue }
+                let title = tab.value(forKey: "title") as? String ?? ""
+                let tabID = tab.value(forKey: "id") as? NSNumber
+                let isActive = windowIndex == 0 && (
+                    (tabID != nil && tabID == activeID) || (tabID == nil && url == activeURL)
+                )
+                result.append(BrowserTabSnapshot(
+                    id: "\(idPrefix)\(browserID):\(processID):\(tabIndex)",
+                    title: title,
+                    url: url,
+                    isActive: isActive
+                ))
+            }
+        }
+        return result
     }
 }
 
-/// Chrome tab listing with chromux as the primary channel and AppleScript as
-/// the fallback: pairing stays optional (detection works either way) and
-/// upgrades detection with capture-capable tab ids when connected.
+typealias ChromeAppleScriptTabProbe = ChromiumAppleScriptTabProbe
+
+/// Chromium tab listing with chromux as the primary channel and AppleScript
+/// as the fallback: pairing stays optional for detection and upgrades the
+/// result with capture-capable tab ids when connected.
 struct ChromeTabProbe: BrowserTabProbing {
     var primary: any BrowserTabProbing = ChromuxTabProbe()
     var fallback: any BrowserTabProbing = ChromeAppleScriptTabProbe()
 
-    func tabs() async -> [BrowserTabSnapshot] {
-        let viaChromux = await primary.tabs()
-        if !viaChromux.isEmpty { return viaChromux }
-        return await fallback.tabs()
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot] {
+        let viaChromux = await primary.tabs(preferredApplicationPIDs: preferredApplicationPIDs)
+        let viaBrowser = await fallback.tabs(preferredApplicationPIDs: preferredApplicationPIDs)
+
+        // chromux can be paired to a different Chromium browser. Keep the
+        // browser-specific AppleScript list, ordering, titles, and active-tab
+        // state authoritative. Matching chromux rows only upgrade individual
+        // ids for optional participant capture; they never remove another
+        // meeting that exists in the expected browser.
+        guard !viaBrowser.isEmpty else { return viaChromux }
+        return viaBrowser.map { browserTab in
+            guard let meetingID = MeetingDetectionEngine.meetingIdentity(forURL: browserTab.url),
+                  let chromuxTab = viaChromux.first(where: {
+                      MeetingDetectionEngine.meetingIdentity(forURL: $0.url) == meetingID
+                  })
+            else { return browserTab }
+            var upgraded = browserTab
+            upgraded.id = chromuxTab.id
+            return upgraded
+        }
     }
 }
 
@@ -215,15 +451,19 @@ struct ChromeTabProbe: BrowserTabProbing {
 struct SafariTabProbe: BrowserTabProbing {
     var timeoutSeconds: TimeInterval = 5
 
-    func tabs() async -> [BrowserTabSnapshot] {
+    func tabs(preferredApplicationPIDs: Set<Int32>) async -> [BrowserTabSnapshot] {
         let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.Safari" }
         guard running else { return [] }
         let script = """
         set out to ""
         tell application "Safari"
+            set windowIndex to 0
             repeat with w in windows
+                set windowIndex to windowIndex + 1
+                set activeURL to URL of current tab of w
                 repeat with t in tabs of w
-                    set out to out & (URL of t) & "\\t" & (name of t) & linefeed
+                    set isActive to (windowIndex is 1) and ((URL of t) is activeURL)
+                    set out to out & (URL of t) & "\\t" & (name of t) & "\\t" & isActive & linefeed
                 end repeat
             end repeat
         end tell
@@ -234,10 +474,11 @@ struct SafariTabProbe: BrowserTabProbing {
             timeoutSeconds: timeoutSeconds
         ), let output = String(data: data, encoding: .utf8) else { return [] }
         return output.split(separator: "\n").enumerated().compactMap { index, line in
-            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
             guard let url = parts.first.map(String.init), url.hasPrefix("http") else { return nil }
             let title = parts.count > 1 ? String(parts[1]) : ""
-            return BrowserTabSnapshot(id: "safari-\(index)", title: title, url: url)
+            let isActive = parts.count > 2 && parts[2] == "true"
+            return BrowserTabSnapshot(id: "safari-\(index)", title: title, url: url, isActive: isActive)
         }
     }
 }

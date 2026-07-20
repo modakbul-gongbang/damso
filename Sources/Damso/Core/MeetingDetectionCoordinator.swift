@@ -54,8 +54,6 @@ final class MeetingDetectionCoordinator: ObservableObject {
     /// sources instead of the real probes. The detection-enabled preference
     /// still gates them, so the settings toggle is tested honestly.
     var simulatedSources: [DetectedMeetingSource]?
-    /// The session the user pressed [무시] on; the panel collapses but stays.
-    private var ignoredSessionID: UUID?
     /// Set by the participant capture pipeline (N4) while a live count exists.
     private(set) var participantCount: Int?
     private(set) var showPairingHint = false
@@ -78,8 +76,16 @@ final class MeetingDetectionCoordinator: ObservableObject {
         self.zoomProbe = zoomProbe
         self.tabProbes = tabProbes ?? [
             .chrome: ChromeTabProbe(),
-            .dia: ChromuxTabProbe(),
-            .arc: ChromuxTabProbe(),
+            .dia: ChromeTabProbe(fallback: ChromiumAppleScriptTabProbe(
+                applicationName: "Dia",
+                bundleIdentifier: "company.thebrowser.dia",
+                browserID: "dia"
+            )),
+            .arc: ChromeTabProbe(fallback: ChromiumAppleScriptTabProbe(
+                applicationName: "Arc",
+                bundleIdentifier: "company.thebrowser.browser",
+                browserID: "arc"
+            )),
             .safari: SafariTabProbe(),
         ]
         self.pollIntervalSeconds = pollIntervalSeconds
@@ -105,14 +111,17 @@ final class MeetingDetectionCoordinator: ObservableObject {
     func pollOnce(at now: Date) async {
         guard MeetingDetectionPreferences.isDetectionEnabled() else {
             // Detection off: never prompt. An approved recording keeps
-            // running (the user consented to it); prompting sessions end.
-            if case .prompting = machine.state {
+            // running (the user consented to it); idle suppression and
+            // prompting sessions reset so re-enabling starts from a clean
+            // observation.
+            switch machine.state {
+            case .idle, .prompting:
                 machine = MeetingSessionStateMachine()
-            }
-            if case .idle = machine.state {
                 statusLine = Loc.tr("Meeting detection is off")
                 render()
                 return
+            default:
+                break
             }
             await advance(sources: currentSourcesFromState(), at: now)
             return
@@ -142,7 +151,8 @@ final class MeetingDetectionCoordinator: ObservableObject {
         // Probe tabs only for browsers actually using the mic; a failed or
         // missing probe reads as no tabs and can never block detection (G6).
         for (app, probe) in tabProbes where MeetingDetectionEngine.micInUse(by: app, in: snapshot) {
-            tabsByApp[app] = await probe.tabs()
+            let preferredApplicationPIDs = MeetingDetectionEngine.micApplicationProcessIDs(for: app, in: snapshot)
+            tabsByApp[app] = await probe.tabs(preferredApplicationPIDs: preferredApplicationPIDs)
         }
         snapshot.tabsByApp = tabsByApp
         if MeetingDetectionEngine.micInUse(by: .zoomApp, in: snapshot) {
@@ -196,20 +206,21 @@ final class MeetingDetectionCoordinator: ObservableObject {
                 Task {
                     await self.apply(self.machine.approveRecording(at: Date()))
                     self.render()
+                    self.updateStatusLine()
                 }
             },
             ignore: { [weak self] in
                 guard let self else { return }
-                if case .prompting(let session, _) = machine.state {
-                    ignoredSessionID = session.id
-                }
+                machine.ignorePrompt()
                 render()
+                updateStatusLine()
             },
             stop: { [weak self] in
                 guard let self else { return }
                 Task {
                     await self.apply(self.machine.stopPressed(at: Date()))
                     self.render()
+                    self.updateStatusLine()
                 }
             },
             discard: { [weak self] in
@@ -217,6 +228,7 @@ final class MeetingDetectionCoordinator: ObservableObject {
                 Task {
                     await self.apply(self.machine.discardShortRecording())
                     self.render()
+                    self.updateStatusLine()
                 }
             },
             keep: { [weak self] in
@@ -224,6 +236,7 @@ final class MeetingDetectionCoordinator: ObservableObject {
                 Task {
                     await self.apply(self.machine.keepShortRecording())
                     self.render()
+                    self.updateStatusLine()
                 }
             },
             openCaptureSettings: {
@@ -256,8 +269,7 @@ final class MeetingDetectionCoordinator: ObservableObject {
         case .prompting(let session, _):
             panel.render(phase: .proposal(
                 titleHint: session.representative.titleHint,
-                app: session.representative.app,
-                collapsed: ignoredSessionID == session.id
+                app: session.representative.app
             ))
         case .recording(let session), .grace(let session, _):
             panel.render(phase: .recording(

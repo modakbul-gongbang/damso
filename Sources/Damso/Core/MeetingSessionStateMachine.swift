@@ -27,11 +27,13 @@ struct MeetingSessionInfo: Equatable, Sendable {
     var recordingStartedAt: Date?
 }
 
-/// The session lifecycle: detected → prompting → recording → grace →
-/// pipeline / short-recording confirmation → idle.
+/// The session lifecycle: detected → prompting → recording → grace → pipeline
+/// / short-recording confirmation → idle. Ignored meeting-room identities are
+/// tracked per source app so several dismissed meetings stay suppressed while
+/// unrelated rooms or the same room in a different browser can still prompt.
 enum MeetingSessionState: Equatable, Sendable {
     case idle
-    /// Panel shows the record proposal; stays compact for the whole meeting.
+    /// Panel shows the full record proposal for the whole meeting.
     /// `quietSince` is set while every source's mic is off.
     case prompting(MeetingSessionInfo, quietSince: Date?)
     case recording(MeetingSessionInfo)
@@ -58,15 +60,30 @@ enum MeetingSessionEffect: Equatable, Sendable {
 /// sources and user actions; tests drive it with synthetic dates.
 struct MeetingSessionStateMachine: Sendable {
     private(set) var state: MeetingSessionState = .idle
+    private(set) var ignoredMeetingKeys: Set<String> = []
+    private var ignoredMeetingQuietSince: [String: Date] = [:]
 
     var graceSeconds: TimeInterval = MeetingSessionDefaults.graceSeconds
     var shortCutoffSeconds: TimeInterval = MeetingSessionDefaults.shortCutoffSeconds
     var discardTimeoutSeconds: TimeInterval = MeetingSessionDefaults.discardTimeoutSeconds
     var promptDismissGraceSeconds: TimeInterval = MeetingSessionDefaults.promptDismissGraceSeconds
 
+    init(
+        graceSeconds: TimeInterval = MeetingSessionDefaults.graceSeconds,
+        shortCutoffSeconds: TimeInterval = MeetingSessionDefaults.shortCutoffSeconds,
+        discardTimeoutSeconds: TimeInterval = MeetingSessionDefaults.discardTimeoutSeconds,
+        promptDismissGraceSeconds: TimeInterval = MeetingSessionDefaults.promptDismissGraceSeconds
+    ) {
+        self.graceSeconds = graceSeconds
+        self.shortCutoffSeconds = shortCutoffSeconds
+        self.discardTimeoutSeconds = discardTimeoutSeconds
+        self.promptDismissGraceSeconds = promptDismissGraceSeconds
+    }
+
     /// Feed the current detection result. Also advances time-based
     /// transitions, so a periodic tick can call this with unchanged sources.
-    mutating func observe(sources: [DetectedMeetingSource], at now: Date) -> [MeetingSessionEffect] {
+    mutating func observe(sources observedSources: [DetectedMeetingSource], at now: Date) -> [MeetingSessionEffect] {
+        let sources = eligibleSources(from: observedSources, at: now)
         switch state {
         case .idle:
             guard let first = sources.first else { return [] }
@@ -138,8 +155,18 @@ struct MeetingSessionStateMachine: Sendable {
         return [.startRecording(session)]
     }
 
-    /// The user pressed [무시]: the panel stays for late start, so this is a
-    /// no-op for the machine; the panel view may collapse itself.
+    /// The user pressed [무시]: hide this proposal and suppress only this
+    /// meeting room in this source app. Another room or browser remains
+    /// eligible immediately.
+    mutating func ignorePrompt() {
+        guard case .prompting(let session, _) = state else { return }
+        for key in session.sources.map(\.meetingIdentityKey) {
+            ignoredMeetingKeys.insert(key)
+            ignoredMeetingQuietSince.removeValue(forKey: key)
+        }
+        state = .idle
+    }
+
     /// The user pressed [중지]: immediate stop, no grace, same cutoff rule.
     mutating func stopPressed(at now: Date) -> [MeetingSessionEffect] {
         switch state {
@@ -182,6 +209,31 @@ struct MeetingSessionStateMachine: Sendable {
         state = .shortRecordingConfirm(session, duration: duration, deadline: now.addingTimeInterval(discardTimeoutSeconds))
         return [.stopRecording(session)]
     }
+
+    /// Filters dismissed rooms before the ordinary session lifecycle sees
+    /// them. Suppression survives brief mic drops and is released only after
+    /// the room has stayed absent for the prompt grace interval.
+    private mutating func eligibleSources(
+        from observed: [DetectedMeetingSource],
+        at now: Date
+    ) -> [DetectedMeetingSource] {
+        let activeKeys = Set(observed.map(\.meetingIdentityKey))
+        for key in Array(ignoredMeetingKeys) {
+            if activeKeys.contains(key) {
+                ignoredMeetingQuietSince.removeValue(forKey: key)
+                continue
+            }
+            if let quietSince = ignoredMeetingQuietSince[key] {
+                if now.timeIntervalSince(quietSince) >= promptDismissGraceSeconds {
+                    ignoredMeetingKeys.remove(key)
+                    ignoredMeetingQuietSince.removeValue(forKey: key)
+                }
+            } else {
+                ignoredMeetingQuietSince[key] = now
+            }
+        }
+        return observed.filter { !ignoredMeetingKeys.contains($0.meetingIdentityKey) }
+    }
 }
 
 private extension MeetingSessionInfo {
@@ -189,8 +241,12 @@ private extension MeetingSessionInfo {
     /// (first detected) never changes, so the panel title stays stable during
     /// simultaneous meetings.
     mutating func merge(sources observed: [DetectedMeetingSource]) {
-        for source in observed where !sources.contains(source) {
-            sources.append(source)
+        for source in observed {
+            if let index = sources.firstIndex(where: { $0.sourceIdentityKey == source.sourceIdentityKey }) {
+                sources[index] = source
+            } else {
+                sources.append(source)
+            }
         }
     }
 }

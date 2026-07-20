@@ -58,6 +58,9 @@ enum MeetingService: String, Codable, Sendable {
 struct MicProcessSnapshot: Equatable, Sendable {
     var bundleID: String
     var isRunningInput: Bool
+    /// PID of the top-level app that owns the CoreAudio input process. This
+    /// disambiguates multiple running instances with the same bundle id.
+    var applicationProcessID: Int32? = nil
 }
 
 /// One open browser tab, as reported by chromux or AppleScript.
@@ -65,6 +68,7 @@ struct BrowserTabSnapshot: Equatable, Sendable {
     var id: String
     var title: String
     var url: String
+    var isActive: Bool = false
 }
 
 /// Everything the detection decision needs, gathered by the runtime probes
@@ -89,6 +93,18 @@ struct DetectedMeetingSource: Equatable, Hashable, Sendable {
     /// Tab identifier for the browser tab the meeting was first seen in, so
     /// participant capture attaches to that exact tab.
     var tabID: String?
+    /// Canonical meeting-room identity derived from the URL. Query strings,
+    /// fragments, tab ids, and changing page titles do not affect it.
+    var meetingID: String? = nil
+
+    var meetingIdentityKey: String {
+        if let meetingID, !meetingID.isEmpty { return "\(app.rawValue):\(meetingID)" }
+        return "\(app.rawValue):\(service.rawValue):\(tabID ?? titleHint)"
+    }
+
+    var sourceIdentityKey: String {
+        meetingIdentityKey
+    }
 }
 
 /// Pure meeting-or-not decision. No IO; the runtime feeds it real snapshots
@@ -113,12 +129,44 @@ enum MeetingDetectionEngine {
         return nil
     }
 
+    /// Stable room identity used by ignore/new-meeting transitions. Meet and
+    /// Zoom both decorate live URLs with query parameters and route suffixes;
+    /// only the service's room code participates in identity.
+    static func meetingIdentity(forURL rawURL: String) -> String? {
+        guard let service = meetingService(forURL: rawURL),
+              let url = URL(string: rawURL)
+        else { return nil }
+        let components = url.path().split(separator: "/").map(String.init)
+        switch service {
+        case .meet:
+            guard let room = components.first, !room.isEmpty else { return nil }
+            return "meet:\(room.lowercased())"
+        case .zoom:
+            guard components.count >= 2,
+                  components[0] == "j" || components[0] == "wc"
+            else { return nil }
+            return "zoom:\(components[1].lowercased())"
+        }
+    }
+
     static func micInUse(by app: MeetingSourceApp, in snapshot: MeetingDetectionSnapshot) -> Bool {
         snapshot.micProcesses.contains { process in
             guard process.isRunningInput else { return false }
             let bundleID = process.bundleID.lowercased()
             return app.bundleIDPrefixes.contains { bundleID.hasPrefix($0) }
         }
+    }
+
+    static func micApplicationProcessIDs(
+        for app: MeetingSourceApp,
+        in snapshot: MeetingDetectionSnapshot
+    ) -> Set<Int32> {
+        Set(snapshot.micProcesses.compactMap { process in
+            guard process.isRunningInput else { return nil }
+            let bundleID = process.bundleID.lowercased()
+            guard app.bundleIDPrefixes.contains(where: { bundleID.hasPrefix($0) }) else { return nil }
+            return process.applicationProcessID
+        })
     }
 
     /// The detection decision: a source counts as an active meeting only when
@@ -142,16 +190,18 @@ enum MeetingDetectionEngine {
             let tabs = snapshot.tabsByApp[app] ?? []
             // Multiple meeting tabs: only the first detected tab represents
             // the meeting (and is the one capture attaches to).
-            guard let match = tabs.lazy.compactMap({ tab -> (BrowserTabSnapshot, MeetingService)? in
+            let matches = tabs.compactMap({ tab -> (BrowserTabSnapshot, MeetingService)? in
                 guard let service = meetingService(forURL: tab.url) else { return nil }
                 return (tab, service)
-            }).first else { continue }
+            })
+            guard let match = matches.first(where: { $0.0.isActive }) ?? matches.first else { continue }
             let title = match.0.title.trimmingCharacters(in: .whitespacesAndNewlines)
             detected.append(DetectedMeetingSource(
                 app: app,
                 service: match.1,
                 titleHint: title.isEmpty ? app.displayName : "\(app.displayName) · \(title)",
-                tabID: match.0.id
+                tabID: match.0.id,
+                meetingID: meetingIdentity(forURL: match.0.url)
             ))
         }
 
