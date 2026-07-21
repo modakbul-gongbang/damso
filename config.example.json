@@ -6,6 +6,6 @@
   "codexCommand": "codex",
   "summaryAgent": "claude",
   "language": "ko",
-  "mlxWhisperModelDirectory": "~/Library/Application Support/Damso/Models/mlx-whisper-large-v3",
+  "mlxWhisperModelDirectory": "~/Library/Application Support/Damso/Models/mlx-whisper-large-v3-turbo",
   "sherpaModelDirectory": "~/Library/Application Support/Damso/Models/sherpa-diarization"
 }

@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .model_setup import SHERPA_EMBEDDING_FILENAME, default_model_root
+from .model_setup import SHERPA_EMBEDDING_FILENAME, WHISPER_DIRECTORY_NAME, default_model_root
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,7 @@ def module_runtime(module: str, identifier: str) -> DiagnosticItem:
 def model_runtime(environment: dict[str, str]) -> list[DiagnosticItem]:
     root = default_model_root()
     models = [
-        ("mlx_whisper_model", Path(environment.get("DAMSO_MLX_WHISPER_MODEL_DIR", root / "mlx-whisper-large-v3")), "config.json", "Use the explicit Local Processing Models install action in Meeting Hub Settings."),
+        ("mlx_whisper_model", Path(environment.get("DAMSO_MLX_WHISPER_MODEL_DIR", root / WHISPER_DIRECTORY_NAME)), "config.json", "Use the explicit Local Processing Models install action in Meeting Hub Settings."),
         ("sherpa_model", Path(environment.get("DAMSO_SHERPA_MODEL_DIR", root / "sherpa-diarization")), f"sherpa-onnx-pyannote-segmentation-3-0/model.onnx|{SHERPA_EMBEDDING_FILENAME}", "Use the explicit Local Processing Models install action in Meeting Hub Settings."),
     ]
     result = []

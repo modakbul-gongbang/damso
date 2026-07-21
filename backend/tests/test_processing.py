@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 import wave
 from pathlib import Path
@@ -16,23 +17,30 @@ from unittest.mock import patch
 from damso.people import VOICE_EMBEDDING_MODEL, apply_people_resolutions, read_profile
 from damso.processing import (
     COMBINED_AUDIO_FILENAME,
+    MAX_PROMPT_NAME_CHARS,
+    MAX_PROMPT_NAMES,
+    WHISPER_STYLE_CARRIER,
     LocalProcessingPipeline,
     MLXWhisperTranscriber,
     ProcessingError,
     ProcessingTerminated,
     SherpaDiarizer,
     assign_speakers,
+    build_initial_prompt,
     captured_participant_names,
     combine_audio_sources,
     deferred_processing_termination_handlers,
     diarize_with_policy,
     execute_whisper_worker,
     isolate_request_process_group,
+    known_people_names,
     merge_participant_hints,
     merge_tiny_speaker_fragments,
+    name_variants,
     participant_retry_target,
     read_speaker_embeddings,
     run_owned_subprocess,
+    select_prompt_names,
     terminate_whisper_worker,
     write_whisper_worker_segments,
 )
@@ -1149,3 +1157,143 @@ class TranscriptCleanupTests(unittest.TestCase):
 
         cleaned = clean_transcribed_segments([{"start": 0.0, "end": 1.0, "text": "   "}])
         self.assertEqual(cleaned, [])
+
+
+class InitialPromptTests(unittest.TestCase):
+    def test_carrier_is_always_present_and_punctuated(self):
+        prompt = build_initial_prompt(None, [])
+        self.assertEqual(prompt, WHISPER_STYLE_CARRIER)
+        self.assertIn(".", prompt)
+        self.assertIn(",", prompt)
+
+    def test_topic_and_terms_are_folded_into_whole_sentences(self):
+        prompt = build_initial_prompt("분기 계획", ["하네스", "리팩토링"])
+        self.assertTrue(prompt.startswith(WHISPER_STYLE_CARRIER))
+        self.assertIn("이번 회의 주제는 분기 계획입니다.", prompt)
+        self.assertIn("오늘은 하네스, 리팩토링 이야기를 나눕니다.", prompt)
+        # A bare "주요 용어: a, b" list leaks verbatim into the first segment.
+        self.assertNotIn("주요 용어", prompt)
+
+    def test_blank_topic_and_terms_are_ignored(self):
+        prompt = build_initial_prompt("   ", ["  ", ""])
+        self.assertEqual(prompt, WHISPER_STYLE_CARRIER)
+
+    def test_transcriber_sends_the_punctuated_prompt_to_its_worker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            audio = root / "audio.caf"
+            audio.write_bytes(b"synthetic")
+            model = root / "model"
+            model.mkdir()
+            observed = {}
+
+            class FakeConfig:
+                mlx_whisper_model_directory = model
+
+                @staticmethod
+                def validate():
+                    return None
+
+            class FakeProcess:
+                returncode = 0
+
+                def __init__(self, arguments, **options):
+                    pass
+
+                def communicate(self, payload):
+                    request = json.loads(payload)
+                    observed["initial_prompt"] = request["initial_prompt"]
+                    os.write(
+                        request["output_fd"],
+                        json.dumps([{"start": 0, "end": 1, "text": "hello"}]).encode("utf-8"),
+                    )
+
+            with patch("damso.processing.subprocess.Popen", side_effect=FakeProcess):
+                MLXWhisperTranscriber(FakeConfig()).transcribe(
+                    audio, {"topic": "분기 계획", "domain_terms": ["하네스"]}
+                )
+
+        self.assertIn(WHISPER_STYLE_CARRIER, observed["initial_prompt"])
+        self.assertIn("분기 계획", observed["initial_prompt"])
+        self.assertIn("하네스", observed["initial_prompt"])
+
+
+class PromptNameSeedingTests(unittest.TestCase):
+    def test_profile_labels_split_into_spoken_names(self):
+        self.assertEqual(name_variants("송주은(오뜨)"), ["송주은", "오뜨"])
+        self.assertEqual(name_variants("이재규"), ["이재규"])
+        # The owner's own profile is stored under a pronoun that is never spoken.
+        self.assertEqual(name_variants("나(이호연)"), ["이호연"])
+
+    def test_profile_labels_are_normalized_from_filesystem_form(self):
+        decomposed = unicodedata.normalize("NFD", "이재규")
+        self.assertNotEqual(decomposed, "이재규")
+        self.assertEqual(name_variants(decomposed), ["이재규"])
+
+    def test_people_directory_is_listed_most_recent_first(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            peoples = Path(temporary)
+            for index, name in enumerate(["older", "newer"]):
+                person = peoples / name
+                person.mkdir()
+                os.utime(person, (1_000 + index, 1_000 + index))
+            peoples.joinpath("archive").mkdir()
+            peoples.joinpath(".hidden").mkdir()
+            peoples.joinpath("loose.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(known_people_names(peoples), ["newer", "older"])
+
+    def test_missing_people_directory_is_not_fatal(self):
+        self.assertEqual(known_people_names(None), [])
+        self.assertEqual(known_people_names(Path("/nonexistent-people-directory")), [])
+
+    def test_participants_come_before_other_known_people(self):
+        selected = select_prompt_names(["송주은(오뜨)"], ["이재규", "송주은"])
+        self.assertEqual(selected[:2], ["송주은", "오뜨"])
+        self.assertIn("이재규", selected)
+        # "송주은" already arrived through the participant label.
+        self.assertEqual(selected.count("송주은"), 1)
+
+    def test_selection_stays_within_the_prompt_budget(self):
+        many = [f"사람{index:02d}" for index in range(200)]
+        selected = select_prompt_names([], many)
+        self.assertLessEqual(len(selected), MAX_PROMPT_NAMES)
+        self.assertLessEqual(sum(len(name) for name in selected), MAX_PROMPT_NAME_CHARS)
+
+    def test_names_are_appended_as_a_sentence(self):
+        prompt = build_initial_prompt(None, [], ["이재규", "송주은"])
+        self.assertTrue(prompt.startswith(WHISPER_STYLE_CARRIER))
+        self.assertIn("자주 언급되는 이름은 이재규, 송주은입니다.", prompt)
+
+    def test_no_names_leaves_the_prompt_unchanged(self):
+        self.assertEqual(build_initial_prompt(None, [], []), WHISPER_STYLE_CARRIER)
+
+
+
+class NoiseSegmentTests(unittest.TestCase):
+    def test_segments_without_hangul_or_alphanumerics_are_dropped(self):
+        from damso.processing import normalize_mlx_segments
+
+        segments = normalize_mlx_segments([
+            {"start": 0.0, "end": 1.0, "text": "안녕하세요"},
+            {"start": 1.0, "end": 2.0, "text": "!"},
+            {"start": 2.0, "end": 3.0, "text": "вдруг"},
+            {"start": 3.0, "end": 4.0, "text": "GitHub"},
+            {"start": 4.0, "end": 5.0, "text": "천 вдруг"},
+        ])
+        self.assertEqual(
+            [segment["text"] for segment in segments],
+            ["안녕하세요", "GitHub", "천 вдруг"],
+        )
+
+    def test_inverted_spans_are_clamped_to_zero_length(self):
+        from damso.processing import normalize_mlx_segments
+
+        segments = normalize_mlx_segments(
+            [{"start": 2141.06, "end": 2140.06, "text": "천"}]
+        )
+        self.assertEqual(segments[0]["start"], 2141.06)
+        self.assertEqual(segments[0]["end"], 2141.06)
+
+if __name__ == "__main__":
+    unittest.main()

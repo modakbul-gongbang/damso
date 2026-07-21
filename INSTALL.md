@@ -16,7 +16,7 @@ Install `ffmpeg` before enabling local sherpa-onnx diarization.
 Install Node.js and `npm install -g @plaud-ai/cli` only if the user wants Plaud wearable synchronization (External Sync).
 Install `chromux` only if the user wants live participant-name capture from browser meeting tabs.
 Install and sign in to the Claude Code CLI or the Codex CLI if you want automatic summaries and titles; select the default agent in Damso Settings.
-Keep the mlx-whisper large-v3 and sherpa-onnx diarization models in local directories you control.
+Keep the mlx-whisper large-v3-turbo and sherpa-onnx diarization models in local directories you control.
 
 ## Local setup
 
@@ -46,9 +46,9 @@ make install-local-app
 The Swift app uses a local Application Support directory until the user explicitly selects an existing local storage root.
 The selected app root is stored as a user preference and is never silently moved or replaced with a fallback root.
 The Python helper, MCP server, and diagnostics use `DAMSO_STORE` so terminal use targets the same canonical root deliberately.
-The default local model directories are `~/Library/Application Support/Damso/Models/mlx-whisper-large-v3` and `~/Library/Application Support/Damso/Models/sherpa-diarization`.
+The default local model directories are `~/Library/Application Support/Damso/Models/mlx-whisper-large-v3-turbo` and `~/Library/Application Support/Damso/Models/sherpa-diarization`.
 `DAMSO_MLX_WHISPER_MODEL_DIR` and `DAMSO_SHERPA_MODEL_DIR` can override those locations with directories managed by the user.
-Open Damso Settings and select **Install local models** to explicitly download the pinned Python dependencies, MLX Whisper large-v3 model, and Sherpa diarization models into the local default directory.
+Open Damso Settings and select **Install local models** to explicitly download the pinned Python dependencies, MLX Whisper large-v3-turbo model, and Sherpa diarization models into the local default directory.
 The confirmation explains that this is the only action that accesses the fixed model providers, and it never uploads meeting audio, transcripts, Plaud sessions, or credentials.
 `config.example.json` is a redacted, machine-neutral reference for the values an installation needs.
 The current runtime does not read that file automatically, so do not put secrets or real meeting data in a copied configuration file.
@@ -61,9 +61,11 @@ It returns a nonzero status when a required local dependency is unavailable so s
 ## Local model provisioning
 
 The Settings button and `make install-local-models` invoke one constrained Python module with no shell interpolation and no configurable URL input.
-They install only the pinned local-processing packages, `mlx-community/whisper-large-v3-mlx`, the Sherpa pyannote segmentation archive, and the Sherpa 3D-Speaker embedding model.
+They install only the pinned local-processing packages, `mlx-community/whisper-large-v3-turbo`, the Sherpa pyannote segmentation archive, and the Sherpa 3D-Speaker embedding model.
 The action can be repeated safely after an interrupted download because the readiness check verifies the required local files before reporting success.
 Use `make model-status` to inspect only redacted readiness state.
+Upgrading an earlier install downloads the turbo model into a new `mlx-whisper-large-v3-turbo` directory of about 1.5 GB.
+The previous `mlx-whisper-large-v3` directory of about 2.9 GB is no longer read and can be deleted.
 
 ## Local processing boundary
 

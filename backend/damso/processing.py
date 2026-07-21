@@ -10,12 +10,14 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import signal
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import uuid
 import wave
 from collections import defaultdict
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 from .contracts import ContractError, apply_resolutions, atomic_write_json, ensure_safe_stem, normalize_hint, write_phase_one
-from .model_setup import SHERPA_EMBEDDING_FILENAME, default_model_root
+from .model_setup import SHERPA_EMBEDDING_FILENAME, WHISPER_DIRECTORY_NAME, default_model_root
 from .people import VOICE_EMBEDDING_MODEL, append_person_note, apply_people_resolutions, compatible_voice_candidates, remove_person_alias, set_person_email
 
 
@@ -46,6 +48,12 @@ FRAGMENT_TOTAL_SECONDS_CAP = 60.0
 FRAGMENT_SPEECH_RATIO = 0.05
 MAX_WHISPER_WORKER_OUTPUT_BYTES = 16 * 1024 * 1024
 OWNED_SUBPROCESS_TERMINATION_GRACE_SECONDS = 5.0
+
+# Speaker embedding dominates diarization CPU. Measured on a 55 minute meeting,
+# four threads cost 1046s of CPU for 307s of wall clock, while two cost 613s for
+# 337s. Trading 30s of wall clock for 433s of CPU is the better deal for work
+# that runs in the background while the user keeps using the Mac.
+SHERPA_EMBEDDING_THREADS = 2
 
 
 class Transcriber(Protocol):
@@ -345,7 +353,7 @@ class LocalModelConfig:
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> "LocalModelConfig":
         environment = environment or os.environ
         root = default_model_root()
-        whisper = environment.get("DAMSO_MLX_WHISPER_MODEL_DIR") or str(root / "mlx-whisper-large-v3")
+        whisper = environment.get("DAMSO_MLX_WHISPER_MODEL_DIR") or str(root / WHISPER_DIRECTORY_NAME)
         sherpa = environment.get("DAMSO_SHERPA_MODEL_DIR") or str(root / "sherpa-diarization")
         return cls(Path(whisper).expanduser(), Path(sherpa).expanduser())
 
@@ -366,6 +374,100 @@ class LocalModelConfig:
 # the transcript remains a faithful record.
 MAX_CONSECUTIVE_PHRASE_REPEATS = 3
 MAX_COLLAPSE_PHRASE_TOKENS = 8
+MEANINGFUL_TEXT = re.compile(r"[가-힣0-9A-Za-z]")
+
+# Whisper continues the style of initial_prompt. An unpunctuated bag of terms
+# therefore teaches it to emit unpunctuated speech: measured on a 10 minute
+# Korean meeting, a bare "topic term term" prompt dropped sentence enders to
+# 3.8 per 1k hangul and produced 200 ellipses. This fully punctuated carrier
+# restores them. Topic and terms are folded into whole sentences because a
+# bare "주요 용어: a, b, c" list leaks verbatim into the first segment.
+WHISPER_STYLE_CARRIER = (
+    "다음은 한국어 회의 녹취록입니다. 모든 문장은 맞춤법과 구두점을 갖추어 적습니다. "
+    "안녕하세요, 오늘 회의를 시작하겠습니다. 네, 그러면 먼저 진행 상황부터 공유드릴게요."
+)
+
+
+# Whisper truncates initial_prompt to the last 223 tokens. The carrier costs
+# about 52 and Korean names average 6, so the whole people directory does not
+# fit and is capped here rather than being silently cut off mid-list.
+MAX_PROMPT_NAMES = 20
+MAX_PROMPT_NAME_CHARS = 100
+ARCHIVED_PEOPLE_DIRECTORY = "archive"
+
+
+def name_variants(entry: str) -> list[str]:
+    """Split a profile label such as "송주은(오뜨)" into the names people say."""
+    label = unicodedata.normalize("NFC", str(entry)).strip()
+    base, _, remainder = label.partition("(")
+    candidates = [base.strip(), remainder.rstrip(")").strip()]
+    # "나(이호연)" is the owner's own profile; the pronoun is never spoken as a name.
+    return [candidate for candidate in candidates if candidate and candidate != "나"]
+
+
+def known_people_names(peoples_directory: Path | None) -> list[str]:
+    """List profile names, most recently touched first.
+
+    macOS stores these directory names NFD-decomposed, so they are normalized
+    here; skipping that silently breaks every comparison against typed text.
+    """
+    if peoples_directory is None or not peoples_directory.is_dir():
+        return []
+    entries: list[tuple[float, str]] = []
+    try:
+        for entry in peoples_directory.iterdir():
+            if entry.name.startswith(".") or entry.name == ARCHIVED_PEOPLE_DIRECTORY:
+                continue
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            try:
+                modified = entry.stat().st_mtime
+            except OSError:
+                continue
+            entries.append((modified, entry.name))
+    except OSError:
+        return []
+    entries.sort(key=lambda item: (-item[0], item[1]))
+    return [name for _, name in entries]
+
+
+def select_prompt_names(participants: Sequence[Any], known: Sequence[Any]) -> list[str]:
+    """Prefer this meeting's participants, then recently seen people, to budget."""
+    selected: list[str] = []
+    seen: set[str] = set()
+    used = 0
+    for entry in [*participants, *known]:
+        for name in name_variants(entry):
+            key = name.casefold()
+            if key in seen:
+                continue
+            if len(selected) >= MAX_PROMPT_NAMES or used + len(name) > MAX_PROMPT_NAME_CHARS:
+                return selected
+            seen.add(key)
+            selected.append(name)
+            used += len(name)
+    return selected
+
+
+def build_initial_prompt(
+    topic: Any,
+    domain_terms: Sequence[Any],
+    names: Sequence[Any] = (),
+) -> str:
+    """Compose the punctuated style carrier with any caller-supplied context."""
+    sentences = [WHISPER_STYLE_CARRIER]
+    topic_text = str(topic or "").strip()
+    if topic_text:
+        sentences.append(f"이번 회의 주제는 {topic_text}입니다.")
+    terms = [str(term).strip() for term in domain_terms if str(term).strip()]
+    if terms:
+        sentences.append(f"오늘은 {', '.join(terms)} 이야기를 나눕니다.")
+    if names:
+        # Deliberately vague about what each entry is: a profile label carries a
+        # person's name, a nickname, or their company, and the point here is
+        # lexical bias for the decoder rather than a factual claim.
+        sentences.append(f"자주 언급되는 이름은 {', '.join(str(name) for name in names)}입니다.")
+    return " ".join(sentences)
 
 
 def collapse_repetitions(text: str, max_repeats: int = MAX_CONSECUTIVE_PHRASE_REPEATS) -> str:
@@ -427,14 +529,19 @@ def normalize_mlx_segments(value: Any) -> list[dict[str, Any]]:
         if not isinstance(segment, Mapping):
             raise ProcessingError("mlx-whisper returned an invalid transcript segment")
         text = str(segment.get("text", "")).strip()
-        if not text:
+        if not text or not MEANINGFUL_TEXT.search(text):
+            # Whisper occasionally emits pure noise on low-energy stretches:
+            # a lone "!" or a burst of an unrelated script. Nothing without a
+            # Hangul or alphanumeric character carries meeting content.
             continue
         try:
             start = float(segment["start"])
             end = float(segment["end"])
         except (KeyError, TypeError, ValueError) as error:
             raise ProcessingError("mlx-whisper returned an invalid transcript segment") from error
-        normalized.append({"start": start, "end": end, "text": text})
+        # Those same noise stretches also produce inverted spans, which would
+        # give the player a negative duration to seek across.
+        normalized.append({"start": start, "end": max(start, end), "text": text})
     return clean_transcribed_segments(normalized)
 
 
@@ -660,9 +767,11 @@ class MLXWhisperTranscriber:
 
     def transcribe(self, audio_path: Path, hints: Mapping[str, Any]) -> list[dict[str, Any]]:
         self.config.validate()
-        domain_terms = hints.get("domain_terms", [])
-        topic = hints.get("topic")
-        initial_prompt = " ".join([str(topic or ""), *[str(term) for term in domain_terms]]).strip() or None
+        initial_prompt = build_initial_prompt(
+            hints.get("topic"),
+            hints.get("domain_terms", []),
+            select_prompt_names(hints.get("participants", []), hints.get("known_people", [])),
+        )
         with tempfile.TemporaryFile(prefix="damso-whisper-worker-", mode="w+b") as output:
             output_descriptor = whisper_worker_output_descriptor(output.fileno())
             request = {
@@ -743,7 +852,10 @@ class SherpaDiarizer:
             str(self.config.sherpa_model_directory / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx")
         )
         embedding = SpeakerEmbeddingExtractorConfig(
-            model=str(self.config.sherpa_model_directory / SHERPA_EMBEDDING_FILENAME), num_threads=4, debug=False, provider="cpu"
+            model=str(self.config.sherpa_model_directory / SHERPA_EMBEDDING_FILENAME),
+            num_threads=SHERPA_EMBEDDING_THREADS,
+            debug=False,
+            provider="cpu",
         )
         clustering = FastClusteringConfig(num_clusters=int(num_speakers or -1), threshold=0.95)
         config = OfflineSpeakerDiarizationConfig(
@@ -775,7 +887,7 @@ class SherpaDiarizer:
         extractor = SpeakerEmbeddingExtractor(
             SpeakerEmbeddingExtractorConfig(
                 model=str(self.config.sherpa_model_directory / SHERPA_EMBEDDING_FILENAME),
-                num_threads=4,
+                num_threads=SHERPA_EMBEDDING_THREADS,
                 debug=False,
                 provider="cpu",
             )
@@ -842,14 +954,20 @@ class LocalProcessingPipeline:
             raise ProcessingError("audio input must be a local regular file")
         generation_id = generation_id or begin_phase_one_attempt(recording_directory)
         effective_hints = merge_participant_hints(hints, captured_participant_names(recording_directory))
+        # Seeds the transcription prompt with names the user already knows so
+        # Whisper spells them consistently. write_phase_one re-normalizes the
+        # hint, so this in-memory key never reaches hint.json.
+        effective_hints["known_people"] = known_people_names(canonical_peoples_for_recording(recording_directory))
         # Whisper runs in a one-shot child process. Its large Metal model is
         # fully reclaimed by the OS before Sherpa loads its native runtimes.
+        # Overlapping the two stages is tempting but both arm SIGTERM/SIGHUP
+        # handlers to reap their children, and Python only permits that on the
+        # main thread, so neither can be moved onto a worker thread as-is.
         raw_segments = self.transcriber.transcribe(audio_path, effective_hints)
-        explicit_num_speakers = effective_hints.get("num_speakers")
         intervals = diarize_with_policy(
             self.diarizer,
             audio_path,
-            explicit_num_speakers,
+            effective_hints.get("num_speakers"),
             len(effective_hints["participants"]),
         )
         embedding_method = getattr(self.diarizer, "speaker_embeddings", None)
@@ -859,7 +977,7 @@ class LocalProcessingPipeline:
             "source_file": audio_path.name,
             "source_files": [source.name for source in (source_files or [audio_path])],
             "language": "ko",
-            "model": "mlx-whisper-large-v3",
+            "model": WHISPER_DIRECTORY_NAME,
             "duration": max((float(segment["end"]) for segment in raw_segments), default=0.0),
             "segments": assign_speakers(raw_segments, intervals),
             "speakers": [],

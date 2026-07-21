@@ -5953,18 +5953,18 @@
         }
       }
     },
-    "This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data.": {
+    "This user-initiated action downloads the required Python packages, Whisper large-v3-turbo, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data."
+            "value": "This user-initiated action downloads the required Python packages, Whisper large-v3-turbo, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 사용자 시작 작업은 필요한 Python 패키지, Whisper large-v3, Sherpa 화자분리 모델을 로컬 Damso 모델 폴더에 다운로드합니다. 미팅 데이터를 업로드하지 않습니다."
+            "value": "이 사용자 시작 작업은 필요한 Python 패키지, Whisper large-v3-turbo, Sherpa 화자분리 모델을 로컬 Damso 모델 폴더에 다운로드합니다. 미팅 데이터를 업로드하지 않습니다."
           }
         }
       }
@@ -6417,18 +6417,18 @@
         }
       }
     },
-    "Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.": {
+    "Whisper large-v3-turbo transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup."
+            "value": "Whisper large-v3-turbo transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Whisper large-v3가 오디오를 전사하고 Sherpa가 화자를 분리합니다 (모두 이 Mac에서). 설치 중 미팅 오디오·전사·Plaud 세션·자격증명은 업로드되지 않습니다."
+            "value": "Whisper large-v3-turbo가 오디오를 전사하고 Sherpa가 화자를 분리합니다 (모두 이 Mac에서). 설치 중 미팅 오디오·전사·Plaud 세션·자격증명은 업로드되지 않습니다."
           }
         }
       }
