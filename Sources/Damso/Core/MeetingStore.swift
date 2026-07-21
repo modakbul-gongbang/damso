@@ -14,6 +14,7 @@ enum MeetingStoreError: Error, Equatable, LocalizedError {
     case invalidStem
     case duplicateMeeting
     case invalidArtifactName
+    case unsafeArtifactType
     case corruptRecord
     case missingRecord
 
@@ -23,6 +24,7 @@ enum MeetingStoreError: Error, Equatable, LocalizedError {
         case .invalidStem: "Meeting stem is invalid."
         case .duplicateMeeting: "A meeting with this stem already exists."
         case .invalidArtifactName: "Artifact names may not traverse directories."
+        case .unsafeArtifactType: "A generated artifact has an unsafe file type."
         case .corruptRecord: "The meeting record is corrupt."
         case .missingRecord: "The meeting record does not exist."
         }
@@ -344,6 +346,54 @@ final class MeetingStore {
         defer { try? fileManager.removeItem(at: temporary) }
         try validateRecordFile(temporary, expectedStem: record.stem)
         _ = try fileManager.replaceItemAt(directory.appendingPathComponent("meeting.json"), withItemAt: temporary)
+    }
+
+    /// Removes only the generated outputs whose meaning depends on the
+    /// previous phase-one speaker labels. Raw audio, raw transcript evidence,
+    /// corrections, and unrelated meeting metadata are deliberately outside
+    /// this fixed allowlist.
+    func invalidatePhaseOneDependents(stem: String) throws {
+        guard isSafeStem(stem) else { throw MeetingStoreError.invalidStem }
+        let directory = layout.recordDirectory(stem: stem)
+        guard fileManager.fileExists(atPath: directory.path) else { throw MeetingStoreError.missingRecord }
+        let artifactNames = [
+            "resolutions.yaml",
+            "transcript.json",
+            "summary.json",
+            "transcript.cleaned.json",
+            "speaker_hints.json",
+            "transcript.md",
+        ]
+
+        for name in artifactNames {
+            let artifact = directory.appendingPathComponent(name)
+            let values: URLResourceValues
+            do {
+                // Ask the link itself for its type so dangling links are also
+                // removed instead of being mistaken for an absent artifact.
+                values = try artifact.resourceValues(forKeys: [
+                    .isDirectoryKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ])
+            } catch {
+                let cocoaError = error as NSError
+                let absentCodes = [
+                    CocoaError.Code.fileNoSuchFile.rawValue,
+                    CocoaError.Code.fileReadNoSuchFile.rawValue,
+                ]
+                guard cocoaError.domain == NSCocoaErrorDomain,
+                      absentCodes.contains(cocoaError.code) else {
+                    throw error
+                }
+                continue
+            }
+            guard values.isDirectory != true,
+                  values.isRegularFile == true || values.isSymbolicLink == true else {
+                throw MeetingStoreError.unsafeArtifactType
+            }
+            try fileManager.removeItem(at: artifact)
+        }
     }
 
     func checksum(stem: String) throws -> String {

@@ -27,6 +27,16 @@ enum MeetingWorkspaceState: Equatable {
     }
 }
 
+private struct PhaseOneTranscriptProvenance: Decodable {
+    let sourceFile: String
+    let sourceFiles: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case sourceFile = "source_file"
+        case sourceFiles = "source_files"
+    }
+}
+
 /// The narrow process boundary the workspace talks to. The production
 /// backend spawns the fixed local Python modules; tests substitute an
 /// in-memory backend so pipeline behavior is regression-tested without
@@ -689,6 +699,82 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
+    /// Builds phase-one input from raw sources only. A legacy local record
+    /// written before `systemAudioFile` existed adopts its canonical sibling
+    /// when present, while Plaud and genuine mic-only records stay single-track.
+    private func phaseOneRequest(for record: MeetingRecord) -> LocalProcessingRequest? {
+        guard let originalAudioFile = record.originalAudioFile else { return nil }
+        let directory = recordDirectory(for: record)
+        let systemAudioFile: String?
+        if let explicit = record.systemAudioFile {
+            // Preserve the explicit path even when missing so the Python
+            // boundary fails loudly instead of silently dropping a source.
+            systemAudioFile = explicit
+        } else if record.source == .local, originalAudioFile != "system-audio.m4a" {
+            let legacy = directory.appendingPathComponent("system-audio.m4a")
+            systemAudioFile = FileManager.default.fileExists(atPath: legacy.path) ? legacy.lastPathComponent : nil
+        } else {
+            systemAudioFile = nil
+        }
+        return LocalProcessingRequest(
+            recordingDirectory: directory.path,
+            audioPath: directory.appendingPathComponent(originalAudioFile).path,
+            systemAudioPath: systemAudioFile.map { directory.appendingPathComponent($0).path },
+            hints: LocalProcessingHints(record.hints)
+        )
+    }
+
+    private func existingAudioURL(named fileName: String?, in record: MeetingRecord) -> URL? {
+        guard let fileName,
+              !fileName.isEmpty,
+              fileName != ".",
+              fileName != "..",
+              !fileName.contains("/"),
+              !fileName.contains("\\") else { return nil }
+        let url = recordDirectory(for: record).appendingPathComponent(fileName)
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              (values.fileSize ?? 0) > 0,
+              url.deletingLastPathComponent().resolvingSymlinksInPath()
+                == recordDirectory(for: record).resolvingSymlinksInPath() else { return nil }
+        return url
+    }
+
+    private func recoverableCombinedAudio(for record: MeetingRecord) -> (expected: Bool, fileName: String?) {
+        let transcriptURL = recordDirectory(for: record).appendingPathComponent("transcript.raw.json")
+        guard let values = try? transcriptURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let data = try? Data(contentsOf: transcriptURL),
+              let provenance = try? JSONDecoder().decode(PhaseOneTranscriptProvenance.self, from: data),
+              provenance.sourceFile == "combined-audio.m4a",
+              let sourceFiles = provenance.sourceFiles,
+              sourceFiles.count == 2,
+              let request = phaseOneRequest(for: record),
+              let systemAudioPath = request.systemAudioPath else {
+            return (false, nil)
+        }
+        let microphoneName = URL(fileURLWithPath: request.audioPath).lastPathComponent
+        let systemName = URL(fileURLWithPath: systemAudioPath).lastPathComponent
+        guard Set(sourceFiles) == Set([microphoneName, systemName]) else { return (false, nil) }
+        let rawSourcesExist = existingAudioURL(named: microphoneName, in: record) != nil
+            && existingAudioURL(named: systemName, in: record) != nil
+        guard rawSourcesExist else { return (true, nil) }
+        let combined = existingAudioURL(named: "combined-audio.m4a", in: record)
+        return (true, combined?.lastPathComponent)
+    }
+
+    private func synchronizeSelectedRecordAfterRecovery(_ record: MeetingRecord) {
+        guard selectedRecord?.stem == record.stem else { return }
+        selectedRecord = record
+        processingArtifacts = (try? store.processingArtifacts(stem: record.stem)) ?? .empty
+        if record.stage == .speakerReview {
+            state = .speakerReview(processingArtifacts.proposals.count)
+            recoveryAction = nil
+        }
+    }
+
     func retrySelectedPhaseOne() async {
         guard var record = selectedRecord,
               let originalAudioFile = record.originalAudioFile else { return }
@@ -698,20 +784,48 @@ final class MeetingWorkspaceController: ObservableObject {
             recoveryAction = Loc.tr("The original local audio is unavailable, so this meeting cannot be reprocessed.")
             return
         }
+        if let systemAudioFile = record.systemAudioFile,
+           existingAudioURL(named: systemAudioFile, in: record) == nil {
+            state = .failed("recording_system_audio_missing")
+            recoveryAction = Loc.tr("The captured system audio is unavailable. Restore it in this meeting folder before reprocessing.")
+            return
+        }
+        guard let request = phaseOneRequest(for: record) else { return }
         record = MeetingDetailActions.retry(.transcribing, for: record)
-        try? store.update(record)
+        record.resolutions = []
+        record.transcript = nil
+        record.summary = nil
+        record.personNotes = nil
+        do {
+            try store.update(record)
+            try store.invalidatePhaseOneDependents(stem: record.stem)
+        } catch {
+            record.stage = .failed
+            record.lastErrorCode = "phase_one_retry_preparation_failed"
+            try? store.update(record)
+            replace(record)
+            selectedRecord = record
+            processingArtifacts = .empty
+            state = .failed("phase_one_retry_preparation_failed")
+            recoveryAction = Loc.tr("The previous speaker-review artifacts could not be cleared safely. Check this meeting folder, then retry local processing.")
+            return
+        }
+        refreshedCandidateStems.remove(record.stem)
+        suggestedStems.remove(record.stem)
+        cleanedTranscriptStems.remove(record.stem)
+        speakerSuggestions = [:]
         replace(record)
         selectedRecord = record
+        processingArtifacts = .empty
         state = .processing
-        let request = LocalProcessingRequest(recordingDirectory: recordDirectory(for: record).path, audioPath: audioURL.path, hints: LocalProcessingHints(record.hints))
         let result = await Task.detached(priority: .utility) { [backend] in
             Result { try backend.runPhaseOne(request) }
         }.value
         switch result {
         case .success(let response):
-            finishProcessing(record, speakerCount: response.speakerCount ?? 0)
-        case .failure:
-            failProcessing(record)
+            finishProcessing(record, request: request, response: response)
+        case .failure(let error):
+            failProcessing(record, error: error)
         }
     }
 
@@ -735,9 +849,8 @@ final class MeetingWorkspaceController: ObservableObject {
     }
 
     func sourceAudioURL(for record: MeetingRecord) -> URL? {
-        guard let originalAudioFile = record.originalAudioFile else { return nil }
-        let url = recordDirectory(for: record).appendingPathComponent(originalAudioFile)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        existingAudioURL(named: record.processedAudioFile, in: record)
+            ?? existingAudioURL(named: record.originalAudioFile, in: record)
     }
 
     /// The audio URL AVAudioPlayer can decode right now: the original for
@@ -861,6 +974,8 @@ final class MeetingWorkspaceController: ObservableObject {
             }
             record.hints = session.hints
             record.originalAudioFile = files.microphone.lastPathComponent
+            record.systemAudioFile = files.systemAudio.lastPathComponent
+            record.processedAudioFile = nil
             try store.update(record)
             activeRecord = record
             replace(record)
@@ -875,7 +990,7 @@ final class MeetingWorkspaceController: ObservableObject {
 
     /// Queues the already-stopped active recording into the local pipeline.
     private func processStoppedRecording() {
-        guard var record = activeRecord, let audioFile = record.originalAudioFile else { return }
+        guard var record = activeRecord, record.originalAudioFile != nil else { return }
         // Manual recordings skip the import queue and transcribe immediately,
         // so the visible stage goes straight to "Transcribing" instead of
         // sitting on a stale "waiting" badge while the subprocess runs.
@@ -885,11 +1000,7 @@ final class MeetingWorkspaceController: ObservableObject {
         replace(record)
         state = .processing
         activeProcessingStems.insert(record.stem)
-        let request = LocalProcessingRequest(
-            recordingDirectory: recordDirectory(for: record).path,
-            audioPath: recordDirectory(for: record).appendingPathComponent(audioFile).path,
-            hints: LocalProcessingHints(record.hints)
-        )
+        guard let request = phaseOneRequest(for: record) else { return }
         let processing = record
         Task { [weak self, backend] in
             let result = await Task.detached(priority: .utility) {
@@ -899,9 +1010,9 @@ final class MeetingWorkspaceController: ObservableObject {
             self.activeProcessingStems.remove(processing.stem)
             switch result {
             case .success(let response):
-                self.finishProcessing(processing, speakerCount: response.speakerCount ?? 0)
-            case .failure:
-                self.failProcessing(processing)
+                self.finishProcessing(processing, request: request, response: response)
+            case .failure(let error):
+                self.failProcessing(processing, error: error)
             }
         }
     }
@@ -928,18 +1039,40 @@ final class MeetingWorkspaceController: ObservableObject {
     /// one heavy transcription subprocess per file.
     func processImportedMeeting(stem: String) {
         guard !activeProcessingStems.contains(stem) else { return }
-        guard let record = try? store.load(stem: stem), let audioFile = record.originalAudioFile else { return }
+        guard let record = try? store.load(stem: stem), record.originalAudioFile != nil else { return }
         // Idempotent guard: a record that already carries a phase-one
         // transcript must never be transcribed again (an interrupted import,
         // an adopted legacy record, or a re-synced file). Promote it straight
         // to speaker review instead of respawning a heavy subprocess.
-        if store.hasPhaseOneTranscript(stem: stem) {
+        if store.hasCompletePhaseOneReviewArtifacts(stem: stem) {
             var adopted = record
+            var changed = false
+            let combinedRecovery = recoverableCombinedAudio(for: adopted)
+            if let recovered = combinedRecovery.fileName, adopted.processedAudioFile != recovered {
+                adopted.processedAudioFile = recovered
+                changed = true
+            } else if combinedRecovery.expected && combinedRecovery.fileName == nil && !adopted.stage.isTerminal {
+                adopted.stage = .failed
+                adopted.lastErrorCode = "combined_audio_unavailable"
+                changed = true
+                if selectedRecord?.stem == stem {
+                    state = .failed("combined_audio_unavailable")
+                    recoveryAction = Loc.tr("The combined playback audio is missing. Restore both captured tracks and retry local processing.")
+                }
+                try? store.update(adopted)
+                replace(adopted)
+                synchronizeSelectedRecordAfterRecovery(adopted)
+                return
+            }
             if !adopted.stage.isTerminal, adopted.stage != .speakerReview, adopted.stage != .summarizing {
                 adopted.stage = .speakerReview
                 adopted.completedStages = [.captured, .transcribing, .speakerReview]
+                changed = true
+            }
+            if changed {
                 try? store.update(adopted)
                 replace(adopted)
+                synchronizeSelectedRecordAfterRecovery(adopted)
             }
             return
         }
@@ -948,11 +1081,7 @@ final class MeetingWorkspaceController: ObservableObject {
         queued.stage = .queued
         try? store.update(queued)
         replace(queued)
-        let request = LocalProcessingRequest(
-            recordingDirectory: recordDirectory(for: queued).path,
-            audioPath: recordDirectory(for: queued).appendingPathComponent(audioFile).path,
-            hints: LocalProcessingHints(queued.hints)
-        )
+        guard let request = phaseOneRequest(for: queued) else { return }
         let stem = queued.stem
         let previous = importedProcessingChain
         importedProcessingChain = Task { [weak self, backend] in
@@ -972,13 +1101,34 @@ final class MeetingWorkspaceController: ObservableObject {
             self.activeProcessingStems.remove(stem)
             guard var updated = try? self.store.load(stem: stem) else { return }
             switch result {
-            case .success:
-                updated.stage = .speakerReview
-                updated.completedStages = [.captured, .transcribing, .speakerReview]
-                updated.lastErrorCode = nil
-            case .failure:
+            case .success(let response):
+                do {
+                    updated.processedAudioFile = try self.validatedProcessedAudioFile(
+                        for: updated,
+                        request: request,
+                        response: response
+                    )
+                    updated.stage = .speakerReview
+                    updated.completedStages = [.captured, .transcribing, .speakerReview]
+                    updated.lastErrorCode = nil
+                } catch {
+                    let failure = self.processingFailureDetails(error)
+                    updated.stage = .failed
+                    updated.lastErrorCode = failure.code
+                    updated.processedAudioFile = nil
+                    if self.selectedRecord?.stem == stem {
+                        self.state = .failed(failure.code)
+                        self.recoveryAction = failure.nextAction
+                    }
+                }
+            case .failure(let error):
+                let failure = self.processingFailureDetails(error)
                 updated.stage = .failed
-                updated.lastErrorCode = "local_processing_failed"
+                updated.lastErrorCode = failure.code
+                if self.selectedRecord?.stem == stem {
+                    self.state = .failed(failure.code)
+                    self.recoveryAction = failure.nextAction
+                }
             }
             try? self.store.update(updated)
             self.replace(updated)
@@ -1064,16 +1214,47 @@ final class MeetingWorkspaceController: ObservableObject {
         refreshLibrary()
     }
 
-    private func finishProcessing(_ record: MeetingRecord, speakerCount: Int) {
+    private func validatedProcessedAudioFile(
+        for record: MeetingRecord,
+        request: LocalProcessingRequest,
+        response: LocalProcessingResult
+    ) throws -> String? {
+        guard request.systemAudioPath != nil else { return nil }
+        guard let processedAudioFile = response.processedAudioFile,
+              processedAudioFile == "combined-audio.m4a",
+              existingAudioURL(named: processedAudioFile, in: record) != nil else {
+            throw LocalProcessingCommandError.backend(
+                code: "combined_audio_unavailable",
+                nextAction: Loc.tr("The combined playback audio was not created safely. Restore both captured tracks and retry local processing.")
+            )
+        }
+        return processedAudioFile
+    }
+
+    private func finishProcessing(
+        _ record: MeetingRecord,
+        request: LocalProcessingRequest,
+        response: LocalProcessingResult
+    ) {
+        let processedAudioFile: String?
+        do {
+            processedAudioFile = try validatedProcessedAudioFile(for: record, request: request, response: response)
+        } catch {
+            var failed = record
+            failed.processedAudioFile = nil
+            failProcessing(failed, error: error)
+            return
+        }
         var updated = record
         updated.stage = .speakerReview
         updated.completedStages = [.captured, .transcribing, .speakerReview]
+        updated.processedAudioFile = processedAudioFile
         try? store.update(updated)
         activeRecord = updated
         replace(updated)
         selectedRecord = updated
         processingArtifacts = (try? store.processingArtifacts(stem: updated.stem)) ?? .empty
-        state = .speakerReview(speakerCount)
+        state = .speakerReview(response.speakerCount ?? 0)
         recoveryAction = nil
         // Warm the transcript-read hints now so they are already on the cards
         // the first time this freshly transcribed meeting is opened.
@@ -1104,16 +1285,28 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    private func failProcessing(_ record: MeetingRecord) {
+    private func failProcessing(_ record: MeetingRecord, error: Error? = nil) {
         var updated = record
         updated.stage = .failed
-        updated.lastErrorCode = "local_processing_failed"
+        let failure = processingFailureDetails(error)
+        updated.lastErrorCode = failure.code
         try? store.update(updated)
         activeRecord = updated
         replace(updated)
         selectedRecord = updated
-        state = .failed("local_processing_failed")
-        recoveryAction = Loc.tr("Local processing failed without uploading meeting data. Check local models and retry.")
+        state = .failed(failure.code)
+        recoveryAction = failure.nextAction
+    }
+
+    private func processingFailureDetails(_ error: Error?) -> (code: String, nextAction: String) {
+        if let commandError = error as? LocalProcessingCommandError,
+           case .backend(let backendCode, let backendNextAction) = commandError {
+            return (backendCode, backendNextAction)
+        }
+        return (
+            "local_processing_failed",
+            Loc.tr("Local processing failed without uploading meeting data. Check local models and retry.")
+        )
     }
 
     private func recordDirectory(forStem stem: String) -> URL {

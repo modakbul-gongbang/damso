@@ -96,7 +96,7 @@ def validate_transcript(payload: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(start, (float, int)) or not isinstance(end, (float, int)) or end < start:
             raise ContractError("segment timestamps are invalid")
         normalized_segments.append({"speaker": speaker, "start": round(float(start), 2), "end": round(float(end), 2), "text": text.strip()})
-    return {
+    normalized = {
         "source_file": str(payload.get("source_file", "audio")),
         "language": str(payload.get("language", "ko")),
         "model": str(payload.get("model", "large-v3")),
@@ -104,6 +104,23 @@ def validate_transcript(payload: Mapping[str, Any]) -> dict[str, Any]:
         "speakers": [str(item) for item in speakers],
         "segments": normalized_segments,
     }
+    generation_id = payload.get("generation_id")
+    if generation_id is not None:
+        if not isinstance(generation_id, str) or not generation_id.strip():
+            raise ContractError("generation_id must be a non-empty string")
+        normalized["generation_id"] = generation_id.strip()
+    if "source_files" in payload:
+        source_files = payload.get("source_files")
+        if not isinstance(source_files, list) or not source_files or not all(isinstance(item, str) for item in source_files):
+            raise ContractError("source_files must be a non-empty list of local basenames")
+        normalized_sources: list[str] = []
+        for item in source_files:
+            if not item or item in {".", ".."} or "/" in item or "\\" in item:
+                raise ContractError("source_files must contain local basenames only")
+            if item not in normalized_sources:
+                normalized_sources.append(item)
+        normalized["source_files"] = normalized_sources
+    return normalized
 
 
 def transcript_markdown(transcript: Mapping[str, Any]) -> str:
@@ -118,6 +135,11 @@ def write_phase_one(recording_dir: Path, hint: Mapping[str, Any] | None, transcr
     normalized_transcript = validate_transcript(transcript)
     if not isinstance(identification.get("proposals", {}), Mapping):
         raise ContractError("identification proposals must be an object")
+    transcript_generation = normalized_transcript.get("generation_id")
+    identification_generation = identification.get("generation_id")
+    if transcript_generation is not None or identification_generation is not None:
+        if transcript_generation != identification_generation:
+            raise ContractError("phase-one artifacts must share one generation_id")
     atomic_write_json(recording_dir / "hint.json", normalized_hint)
     atomic_write_json(recording_dir / "transcript.raw.json", normalized_transcript)
     atomic_write_json(recording_dir / "identification.json", dict(identification))
@@ -129,6 +151,10 @@ def apply_resolutions(recording_dir: Path, resolutions: Mapping[str, Mapping[str
     if not raw_path.exists():
         raise ContractError("phase one transcript is required before applying resolutions")
     transcript = validate_transcript(json.loads(raw_path.read_text(encoding="utf-8")))
+    transcript_speakers = {segment["speaker"] for segment in transcript["segments"]}
+    unknown_speakers = set(resolutions) - transcript_speakers
+    if unknown_speakers:
+        raise ContractError("speaker resolutions must reference the current phase one transcript")
     normalized: dict[str, dict[str, str | None]] = {}
     for speaker, resolution in resolutions.items():
         action = resolution.get("action")

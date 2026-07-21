@@ -184,6 +184,8 @@ def reconcile_record(record_dir: Path) -> ReconcileResult:
         "speakers": raw_labels,
         "segments": raw_segments,
     }
+    if "source_files" in transcript:
+        raw_payload["source_files"] = transcript["source_files"]
     normalized_raw = contracts.validate_transcript(raw_payload)
     contracts.atomic_write_json(raw_path, normalized_raw)
 

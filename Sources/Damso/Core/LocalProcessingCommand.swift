@@ -16,13 +16,22 @@ struct LocalProcessingRequest: Encodable, Sendable {
     let operation = "phase-one"
     let recordingDirectory: String
     let audioPath: String
+    let systemAudioPath: String?
     let hints: LocalProcessingHints
 
     enum CodingKeys: String, CodingKey {
         case operation
         case recordingDirectory = "recording_directory"
         case audioPath = "audio_path"
+        case systemAudioPath = "system_audio_path"
         case hints
+    }
+
+    init(recordingDirectory: String, audioPath: String, systemAudioPath: String? = nil, hints: LocalProcessingHints) {
+        self.recordingDirectory = recordingDirectory
+        self.audioPath = audioPath
+        self.systemAudioPath = systemAudioPath
+        self.hints = hints
     }
 }
 
@@ -51,11 +60,20 @@ struct LocalProcessingResult: Decodable, Equatable, Sendable {
     let ok: Bool
     let stage: String?
     let speakerCount: Int?
+    let processedAudioFile: String?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case stage
         case speakerCount = "speaker_count"
+        case processedAudioFile = "processed_audio_file"
+    }
+
+    init(ok: Bool, stage: String?, speakerCount: Int?, processedAudioFile: String? = nil) {
+        self.ok = ok
+        self.stage = stage
+        self.speakerCount = speakerCount
+        self.processedAudioFile = processedAudioFile
     }
 }
 
@@ -143,8 +161,24 @@ enum LocalProcessingCommandError: Error, Equatable {
     case requestEncoding
     case launchFailed
     case failed
+    case backend(code: String, nextAction: String)
     case invalidResponse
     case oversizedResponse
+}
+
+private struct LocalProcessingErrorEnvelope: Decodable {
+    struct Details: Decodable {
+        let code: String
+        let nextAction: String
+
+        enum CodingKeys: String, CodingKey {
+            case code
+            case nextAction = "next_action"
+        }
+    }
+
+    let ok: Bool
+    let error: Details
 }
 
 enum LocalProcessingProcessRunner {
@@ -206,6 +240,9 @@ enum LocalProcessingProcessRunner {
             throw LocalProcessingCommandError.oversizedResponse
         }
         guard process.terminationStatus == 0 else {
+            if let envelope = try? JSONDecoder().decode(LocalProcessingErrorEnvelope.self, from: output), !envelope.ok {
+                throw LocalProcessingCommandError.backend(code: envelope.error.code, nextAction: envelope.error.nextAction)
+            }
             throw LocalProcessingCommandError.failed
         }
         guard let result = try? JSONDecoder().decode(LocalProcessingResult.self, from: output), result.ok else {

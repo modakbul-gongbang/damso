@@ -188,6 +188,12 @@ struct MeetingRecord: Codable, Identifiable, Equatable, Sendable {
     var completedStages: [ProcessingStage]
     var lastErrorCode: String?
     var originalAudioFile: String?
+    /// Raw system output captured alongside `originalAudioFile` for local
+    /// meetings. Optional so existing mic-only and Plaud records decode.
+    var systemAudioFile: String?
+    /// Local, reproducible derivative used for playback after both raw
+    /// sources have been combined. Raw source names remain unchanged.
+    var processedAudioFile: String?
     var transcript: [TranscriptSegment]?
     var summary: StructuredSummary?
     var resolutions: [SpeakerResolution]
@@ -207,6 +213,8 @@ struct MeetingRecord: Codable, Identifiable, Equatable, Sendable {
         completedStages: [ProcessingStage] = [],
         lastErrorCode: String? = nil,
         originalAudioFile: String? = nil,
+        systemAudioFile: String? = nil,
+        processedAudioFile: String? = nil,
         transcript: [TranscriptSegment]? = nil,
         summary: StructuredSummary? = nil,
         resolutions: [SpeakerResolution] = [],
@@ -225,6 +233,8 @@ struct MeetingRecord: Codable, Identifiable, Equatable, Sendable {
         self.completedStages = completedStages
         self.lastErrorCode = lastErrorCode
         self.originalAudioFile = originalAudioFile
+        self.systemAudioFile = systemAudioFile
+        self.processedAudioFile = processedAudioFile
         self.transcript = transcript
         self.summary = summary
         self.resolutions = resolutions

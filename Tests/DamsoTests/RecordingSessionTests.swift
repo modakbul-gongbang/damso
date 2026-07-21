@@ -76,3 +76,71 @@ func deniedSystemAudioPermissionBlocksCaptureAndProvidesRecoveryAction() async {
     #expect(session.state == .blocked(.screenRecordingDenied))
     #expect(session.recoveryAction?.contains("Screen Recording") == true)
 }
+
+@Test
+func recordingSessionLegacyMeetingJSONDecodesWithoutNewAudioFields() throws {
+    let record = MeetingRecord(
+        stem: "legacy-audio-contract",
+        source: .local,
+        title: "Legacy",
+        originalAudioFile: "microphone.caf",
+        systemAudioFile: "system-audio.m4a",
+        processedAudioFile: "combined-audio.m4a"
+    )
+    let encoder = JSONEncoder()
+    DateCoding.configure(encoder)
+    var object = try #require(try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any])
+    object.removeValue(forKey: "systemAudioFile")
+    object.removeValue(forKey: "processedAudioFile")
+    let legacy = try JSONSerialization.data(withJSONObject: object)
+    let decoder = JSONDecoder()
+    DateCoding.configure(decoder)
+
+    let decoded = try decoder.decode(MeetingRecord.self, from: legacy)
+
+    #expect(decoded.originalAudioFile == "microphone.caf")
+    #expect(decoded.systemAudioFile == nil)
+    #expect(decoded.processedAudioFile == nil)
+    #expect(decoded.schemaVersion == 1)
+}
+
+@Test @MainActor
+func recordingSessionPlaybackPrefersCombinedAudioAndFallsBackToRawMicrophone() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = MeetingStore(root: root, minimumFreeBytes: 0)
+    var record = try store.createRecord(MeetingDraft(stem: "playback-audio-contract", source: .local, title: "Synthetic"))
+    record.originalAudioFile = "microphone.caf"
+    record.systemAudioFile = "system-audio.m4a"
+    record.processedAudioFile = "combined-audio.m4a"
+    try store.commit(record, artifacts: [
+        "microphone.caf": Data("mic".utf8),
+        "system-audio.m4a": Data("system".utf8),
+        "combined-audio.m4a": Data("combined".utf8),
+    ])
+    let controller = MeetingWorkspaceController(store: store, capture: FakeRecordingCapture(
+        permission: .ready,
+        files: CapturedAudioFiles(
+            microphone: root.appendingPathComponent("unused-mic"),
+            systemAudio: root.appendingPathComponent("unused-system")
+        )
+    ))
+
+    #expect(controller.sourceAudioURL(for: record)?.lastPathComponent == "combined-audio.m4a")
+    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: record.stem)
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("combined-audio.m4a"))
+    #expect(controller.sourceAudioURL(for: record)?.lastPathComponent == "microphone.caf")
+
+    let outside = root.appendingPathComponent("outside.m4a")
+    try Data("outside".utf8).write(to: outside)
+    let linked = directory.appendingPathComponent("combined-audio.m4a")
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+    #expect(controller.sourceAudioURL(for: record)?.lastPathComponent == "microphone.caf")
+
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("microphone.caf"))
+    try FileManager.default.createSymbolicLink(
+        at: directory.appendingPathComponent("microphone.caf"),
+        withDestinationURL: outside
+    )
+    #expect(controller.sourceAudioURL(for: record) == nil)
+}

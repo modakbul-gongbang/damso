@@ -336,6 +336,7 @@ func importedRecordingBecomesAPlaudSourcedMeetingAndStartsThePipeline() async th
         try await Task.sleep(nanoseconds: 100_000_000)
     }
     #expect(backend.phaseOneRequests.count == 1)
+    #expect(backend.phaseOneRequests.first?.systemAudioPath == nil)
 }
 
 /// While its turn is actually running, an imported meeting shows the live

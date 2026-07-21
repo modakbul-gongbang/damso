@@ -7,19 +7,24 @@ There is deliberately no hosted STT fallback in this module.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import signal
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import uuid
 import wave
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
-from .contracts import ContractError, apply_resolutions, ensure_safe_stem, write_phase_one
+from .contracts import ContractError, apply_resolutions, atomic_write_json, ensure_safe_stem, normalize_hint, write_phase_one
 from .model_setup import SHERPA_EMBEDDING_FILENAME, default_model_root
 from .people import VOICE_EMBEDDING_MODEL, append_person_note, apply_people_resolutions, compatible_voice_candidates, remove_person_alias, set_person_email
 
@@ -28,7 +33,19 @@ class ProcessingError(RuntimeError):
     pass
 
 
+class ProcessingTerminated(BaseException):
+    """Private control flow used to unwind one-shot processing on app exit."""
+
+
 MAX_REQUEST_BYTES = 64 * 1024
+COMBINED_AUDIO_FILENAME = "combined-audio.m4a"
+PHASE_ONE_IN_PROGRESS_FILENAME = "phase-one.in-progress.json"
+PHASE_ONE_COMPLETE_FILENAME = "phase-one.complete.json"
+FRAGMENT_MAX_TURN_SECONDS = 3.0
+FRAGMENT_TOTAL_SECONDS_CAP = 60.0
+FRAGMENT_SPEECH_RATIO = 0.05
+MAX_WHISPER_WORKER_OUTPUT_BYTES = 16 * 1024 * 1024
+OWNED_SUBPROCESS_TERMINATION_GRACE_SECONDS = 5.0
 
 
 class Transcriber(Protocol):
@@ -41,6 +58,282 @@ class Diarizer(Protocol):
 
 class SpeakerEmbedder(Protocol):
     def speaker_embeddings(self, audio_path: Path, intervals: Sequence[Mapping[str, Any]]) -> dict[str, list[float]]: ...
+
+
+def begin_phase_one_attempt(recording_directory: Path) -> str:
+    """Invalidate every older recovery candidate before expensive processing."""
+    generation_id = uuid.uuid4().hex
+    atomic_write_json(
+        recording_directory / PHASE_ONE_IN_PROGRESS_FILENAME,
+        {"generation_id": generation_id, "version": 1},
+    )
+    return generation_id
+
+
+def captured_participant_names(recording_directory: Path) -> list[str]:
+    """Read display names without making a malformed capture file fatal."""
+    path = recording_directory / "participants.json"
+    if not path.is_file() or path.is_symlink():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    entries = payload.get("participants") if isinstance(payload, Mapping) else None
+    if not isinstance(entries, list):
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("name"), str):
+            continue
+        name = entry["name"].strip()
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            names.append(name)
+    return names
+
+
+def merge_participant_hints(hints: Mapping[str, Any] | None, captured_names: Sequence[str]) -> dict[str, Any]:
+    """Normalize request hints and append captured names in stable order."""
+    try:
+        merged = normalize_hint(hints)
+    except ContractError as error:
+        raise ProcessingError(str(error)) from error
+    participants: list[str] = []
+    seen: set[str] = set()
+    for raw_name in [*merged["participants"], *captured_names]:
+        name = str(raw_name).strip()
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            participants.append(name)
+    merged["participants"] = participants
+    return merged
+
+
+def relabel_speaker_intervals(intervals: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Copy, timeline-sort, and assign contiguous labels by first appearance."""
+    ordered = sorted(
+        (dict(interval) for interval in intervals),
+        key=lambda interval: (float(interval["start"]), float(interval["end"]), str(interval["speaker"])),
+    )
+    labels: dict[str, str] = {}
+    for interval in ordered:
+        old = str(interval["speaker"])
+        if old not in labels:
+            labels[old] = f"SPEAKER_{len(labels):02d}"
+        interval["speaker"] = labels[old]
+    return ordered
+
+
+def merge_tiny_speaker_fragments(intervals: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Merge only short, fragmented labels with a decisive temporal target."""
+    ordered = sorted(
+        (dict(interval) for interval in intervals),
+        key=lambda interval: (float(interval["start"]), float(interval["end"]), str(interval["speaker"])),
+    )
+    if not ordered:
+        return []
+
+    totals: dict[str, float] = defaultdict(float)
+    longest: dict[str, float] = defaultdict(float)
+    for interval in ordered:
+        speaker = str(interval["speaker"])
+        duration = max(0.0, float(interval["end"]) - float(interval["start"]))
+        totals[speaker] += duration
+        longest[speaker] = max(longest[speaker], duration)
+    total_speech = sum(totals.values())
+    candidate_limit = min(FRAGMENT_TOTAL_SECONDS_CAP, total_speech * FRAGMENT_SPEECH_RATIO)
+    candidates = {
+        speaker
+        for speaker, total in totals.items()
+        if total < candidate_limit and longest[speaker] <= FRAGMENT_MAX_TURN_SECONDS
+    }
+    substantive = set(totals) - candidates
+    if not candidates or not substantive:
+        return relabel_speaker_intervals(ordered)
+
+    votes: dict[str, dict[str, float]] = {speaker: defaultdict(float) for speaker in candidates}
+    for index, interval in enumerate(ordered):
+        candidate = str(interval["speaker"])
+        if candidate not in candidates:
+            continue
+        previous = next(
+            (ordered[position] for position in range(index - 1, -1, -1) if str(ordered[position]["speaker"]) in substantive),
+            None,
+        )
+        following = next(
+            (ordered[position] for position in range(index + 1, len(ordered)) if str(ordered[position]["speaker"]) in substantive),
+            None,
+        )
+        for neighbor in (previous, following):
+            if neighbor is None:
+                continue
+            target = str(neighbor["speaker"])
+            votes[candidate][target] += max(0.0, float(neighbor["end"]) - float(neighbor["start"]))
+
+    remap: dict[str, str] = {}
+    for candidate, candidate_votes in votes.items():
+        if not candidate_votes:
+            continue
+        ordered_votes = sorted(candidate_votes.items(), key=lambda item: (-item[1], item[0]))
+        if len(ordered_votes) == 1 or ordered_votes[0][1] > ordered_votes[1][1]:
+            remap[candidate] = ordered_votes[0][0]
+    for interval in ordered:
+        speaker = str(interval["speaker"])
+        interval["speaker"] = remap.get(speaker, speaker)
+    return relabel_speaker_intervals(ordered)
+
+
+def participant_retry_target(auto_speaker_count: int, participant_count: int) -> int | None:
+    if participant_count < 1 or auto_speaker_count <= participant_count:
+        return None
+    if participant_count <= 2:
+        return participant_count
+    anomaly_threshold = max(participant_count * 2, participant_count + 2)
+    return participant_count if auto_speaker_count >= anomaly_threshold else None
+
+
+def diarize_with_policy(
+    diarizer: Diarizer,
+    audio_path: Path,
+    explicit_num_speakers: int | None,
+    participant_count: int,
+) -> list[dict[str, Any]]:
+    if explicit_num_speakers is not None:
+        return relabel_speaker_intervals(diarizer.diarize(audio_path, explicit_num_speakers))
+    intervals = merge_tiny_speaker_fragments(diarizer.diarize(audio_path, None))
+    initial_count = len({str(item["speaker"]) for item in intervals})
+    retry_target = participant_retry_target(initial_count, participant_count)
+    if retry_target is not None:
+        candidate = merge_tiny_speaker_fragments(diarizer.diarize(audio_path, retry_target))
+        candidate_count = len({str(item["speaker"]) for item in candidate})
+        if candidate and candidate_count <= retry_target and candidate_count < initial_count:
+            intervals = candidate
+    return relabel_speaker_intervals(intervals)
+
+
+def validate_decodable_audio(
+    audio_path: Path,
+    field_name: str,
+    ffmpeg: str = "ffmpeg",
+    duration_seconds: float | None = 0.25,
+) -> None:
+    """Decode a bounded prefix so a broken explicit source gets a stable error."""
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-xerror",
+        "-i",
+        str(audio_path),
+        "-map",
+        "0:a:0",
+    ]
+    if duration_seconds is not None:
+        command.extend(["-t", str(duration_seconds)])
+    command.extend(["-f", "null", "-"])
+    try:
+        run_owned_subprocess(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProcessingError(f"{field_name} could not be decoded as local audio") from error
+
+
+def combine_audio_sources(
+    recording_directory: Path,
+    microphone_path: Path,
+    system_audio_path: Path,
+    ffmpeg: str = "ffmpeg",
+) -> Path:
+    """Atomically create the bounded, local playback and processing mix."""
+    if not shutil.which(ffmpeg):
+        raise ProcessingError("ffmpeg is required to combine local recording sources.")
+    destination = recording_directory / COMBINED_AUDIO_FILENAME
+    if destination.is_symlink():
+        raise ProcessingError("combined audio destination must not be a symbolic link")
+    for source in (microphone_path, system_audio_path):
+        if source == destination:
+            raise ProcessingError("combined audio destination must not replace a raw audio source")
+        try:
+            destination_matches_source = destination.exists() and os.path.samefile(destination, source)
+        except OSError as error:
+            raise ProcessingError("combined audio destination could not be compared safely") from error
+        if destination_matches_source:
+            raise ProcessingError("combined audio destination must not replace a raw audio source")
+    validate_decodable_audio(microphone_path, "audio_path", ffmpeg)
+    validate_decodable_audio(system_audio_path, "system_audio_path", ffmpeg)
+    with cleanup_aware_processing_scope():
+        with tempfile.NamedTemporaryFile(
+            prefix=".combined-audio-",
+            suffix=".m4a",
+            dir=recording_directory,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+        filter_graph = (
+            "[0:a]aresample=16000:async=1:first_pts=0,"
+            "aformat=sample_fmts=fltp:channel_layouts=mono,volume=0.5[mic];"
+            "[1:a]aresample=16000:async=1:first_pts=0,"
+            "aformat=sample_fmts=fltp:channel_layouts=mono,volume=0.5[system];"
+            "[mic][system]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[mixed]"
+        )
+        try:
+            run_owned_subprocess(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-xerror",
+                    "-i",
+                    str(microphone_path),
+                    "-i",
+                    str(system_audio_path),
+                    "-filter_complex",
+                    filter_graph,
+                    "-map",
+                    "[mixed]",
+                    "-vn",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "96k",
+                    "-movflags",
+                    "+faststart",
+                    str(temporary_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if not temporary_path.is_file() or temporary_path.stat().st_size == 0:
+                raise ProcessingError("ffmpeg did not produce a usable combined audio file.")
+            os.replace(temporary_path, destination)
+        except subprocess.CalledProcessError as error:
+            try:
+                validate_decodable_audio(microphone_path, "audio_path", ffmpeg, duration_seconds=None)
+                validate_decodable_audio(system_audio_path, "system_audio_path", ffmpeg, duration_seconds=None)
+            except ProcessingError as source_error:
+                raise source_error from error
+            raise ProcessingError("The captured audio sources could not be combined locally.") from error
+        except OSError as error:
+            raise ProcessingError("The captured audio sources could not be combined locally.") from error
+        finally:
+            temporary_path.unlink(missing_ok=True)
+    return destination
 
 
 @dataclass(frozen=True)
@@ -126,34 +419,299 @@ def clean_transcribed_segments(segments: list[dict[str, Any]], max_repeats: int 
     return cleaned
 
 
+def normalize_mlx_segments(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ProcessingError("mlx-whisper did not return transcript segments")
+    normalized: list[dict[str, Any]] = []
+    for segment in value:
+        if not isinstance(segment, Mapping):
+            raise ProcessingError("mlx-whisper returned an invalid transcript segment")
+        text = str(segment.get("text", "")).strip()
+        if not text:
+            continue
+        try:
+            start = float(segment["start"])
+            end = float(segment["end"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProcessingError("mlx-whisper returned an invalid transcript segment") from error
+        normalized.append({"start": start, "end": end, "text": text})
+    return clean_transcribed_segments(normalized)
+
+
+def mlx_whisper_segments(audio_path: Path, model_directory: Path, initial_prompt: str | None) -> list[dict[str, Any]]:
+    try:
+        import mlx_whisper
+    except ImportError as error:
+        raise ProcessingError("mlx-whisper is not installed in the configured Python environment.") from error
+    result = mlx_whisper.transcribe(
+        str(audio_path),
+        path_or_hf_repo=str(model_directory),
+        language="ko",
+        initial_prompt=initial_prompt,
+        word_timestamps=False,
+    )
+    if not isinstance(result, Mapping):
+        raise ProcessingError("mlx-whisper did not return a transcript object")
+    return normalize_mlx_segments(result.get("segments"))
+
+
+def whisper_worker_output_descriptor(value: Any) -> int:
+    """Accept only a new, writable, unlinked regular file inherited by the worker."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 3:
+        raise ProcessingError("whisper worker output descriptor is invalid")
+    try:
+        descriptor_status = os.fstat(value)
+        descriptor_flags = fcntl.fcntl(value, fcntl.F_GETFL)
+    except OSError as error:
+        raise ProcessingError("whisper worker output descriptor is invalid") from error
+    if (
+        not stat.S_ISREG(descriptor_status.st_mode)
+        or descriptor_status.st_nlink != 0
+        or descriptor_status.st_size != 0
+        or (descriptor_flags & os.O_ACCMODE) == os.O_RDONLY
+    ):
+        raise ProcessingError("whisper worker output descriptor is invalid")
+    os.set_inheritable(value, False)
+    return value
+
+
+def write_whisper_worker_segments(output_descriptor: int, segments: Sequence[Mapping[str, Any]]) -> None:
+    """Write a bounded transcript handoff that has no visible filesystem path."""
+    encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True)
+    completed = False
+    try:
+        os.ftruncate(output_descriptor, 0)
+        os.lseek(output_descriptor, 0, os.SEEK_SET)
+        total_bytes = 0
+        for text_chunk in encoder.iterencode(segments):
+            remaining_limit = MAX_WHISPER_WORKER_OUTPUT_BYTES - total_bytes - 1
+            if len(text_chunk) > remaining_limit:
+                raise ProcessingError("whisper worker transcript segments are too large")
+            encoded_chunk = text_chunk.encode("utf-8")
+            if len(encoded_chunk) > remaining_limit:
+                raise ProcessingError("whisper worker transcript segments are too large")
+            remaining = memoryview(encoded_chunk)
+            while remaining:
+                written = os.write(output_descriptor, remaining)
+                if written <= 0:
+                    raise OSError("whisper worker output write made no progress")
+                remaining = remaining[written:]
+            total_bytes += len(encoded_chunk)
+        if total_bytes + 1 > MAX_WHISPER_WORKER_OUTPUT_BYTES:
+            raise ProcessingError("whisper worker transcript segments are too large")
+        if os.write(output_descriptor, b"\n") != 1:
+            raise OSError("whisper worker output write made no progress")
+        os.fsync(output_descriptor)
+        completed = True
+    except OSError as error:
+        raise ProcessingError("whisper worker could not write transcript segments") from error
+    finally:
+        if not completed:
+            try:
+                os.ftruncate(output_descriptor, 0)
+                os.lseek(output_descriptor, 0, os.SEEK_SET)
+            except OSError:
+                pass
+
+
+def execute_whisper_worker(request: Mapping[str, Any]) -> None:
+    output_descriptor = whisper_worker_output_descriptor(request.get("output_fd"))
+    raw_audio_path = request.get("audio_path")
+    raw_model_directory = request.get("model_directory")
+    initial_prompt = request.get("initial_prompt")
+    if not isinstance(raw_audio_path, str) or not isinstance(raw_model_directory, str):
+        raise ProcessingError("whisper worker request is invalid")
+    if initial_prompt is not None and not isinstance(initial_prompt, str):
+        raise ProcessingError("whisper worker request is invalid")
+    audio_candidate = Path(raw_audio_path)
+    if audio_candidate.is_symlink():
+        raise ProcessingError("whisper worker audio input is invalid")
+    try:
+        audio_path = audio_candidate.resolve(strict=True)
+        model_directory = Path(raw_model_directory).resolve(strict=True)
+    except OSError as error:
+        raise ProcessingError("whisper worker input is unavailable") from error
+    if not audio_path.is_file() or not model_directory.is_dir():
+        raise ProcessingError("whisper worker input is unavailable")
+    segments = mlx_whisper_segments(audio_path, model_directory, initial_prompt)
+    write_whisper_worker_segments(output_descriptor, segments)
+
+
+@contextmanager
+def deferred_processing_termination_handlers(
+    force_stop: Callable[[], None],
+) -> Iterator[Callable[[], None]]:
+    """Defer a spawn-time signal until the parent owns the child process handle."""
+    selected_signals = (signal.SIGTERM, signal.SIGHUP)
+    previous = {selected: signal.getsignal(selected) for selected in selected_signals}
+    request_count = 0
+    armed = False
+    dispatched = False
+
+    def interrupt_after_cleanup(_signum: int, _frame: Any) -> None:
+        nonlocal request_count, dispatched
+        request_count += 1
+        if dispatched or request_count > 1:
+            dispatched = True
+            force_stop()
+            raise ProcessingTerminated("local processing was terminated again")
+        if armed:
+            dispatched = True
+            raise ProcessingTerminated("local processing was terminated")
+
+    def arm() -> None:
+        nonlocal armed, dispatched
+        armed = True
+        if request_count and not dispatched:
+            dispatched = True
+            raise ProcessingTerminated("local processing was terminated")
+
+    try:
+        for selected in selected_signals:
+            signal.signal(selected, interrupt_after_cleanup)
+        yield arm
+    finally:
+        for selected, handler in previous.items():
+            signal.signal(selected, handler)
+
+
+@contextmanager
+def cleanup_aware_processing_scope() -> Iterator[None]:
+    """Make the first exit signal unwind a temporary-resource scope."""
+    with deferred_processing_termination_handlers(lambda: None) as arm:
+        arm()
+        yield
+
+
+def force_terminate_owned_process(process: subprocess.Popen[Any]) -> None:
+    """Kill and reap a child after a repeated termination request."""
+    if process.poll() is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait()
+    except ChildProcessError:
+        pass
+
+
+def terminate_owned_process(process: subprocess.Popen[Any]) -> None:
+    """Gracefully terminate an owned child, escalating and always reaping it."""
+    if process.poll() is not None:
+        try:
+            process.wait()
+        except ChildProcessError:
+            pass
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=OWNED_SUBPROCESS_TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        force_terminate_owned_process(process)
+
+
+def terminate_whisper_worker(process: subprocess.Popen[str]) -> None:
+    """Compatibility wrapper for the one-shot Whisper worker lifecycle."""
+    terminate_owned_process(process)
+
+
+def run_owned_subprocess(
+    command: Sequence[str],
+    *,
+    check: bool = False,
+    capture_output: bool = False,
+    text: bool = False,
+) -> subprocess.CompletedProcess[Any]:
+    """Run one child with cleanup-aware termination around spawn and wait only."""
+    process: subprocess.Popen[Any] | None = None
+
+    def force_stop() -> None:
+        if process is not None:
+            force_terminate_owned_process(process)
+
+    stdout_target = subprocess.PIPE if capture_output else None
+    stderr_target = subprocess.PIPE if capture_output else None
+    with deferred_processing_termination_handlers(force_stop) as arm:
+        process = subprocess.Popen(
+            list(command),
+            stdout=stdout_target,
+            stderr=stderr_target,
+            text=text,
+        )
+        try:
+            arm()
+            stdout, stderr = process.communicate()
+        except BaseException:
+            terminate_owned_process(process)
+            raise
+    completed = subprocess.CompletedProcess(list(command), process.returncode, stdout, stderr)
+    if check:
+        completed.check_returncode()
+    return completed
+
+
 class MLXWhisperTranscriber:
     def __init__(self, config: LocalModelConfig):
         self.config = config
 
     def transcribe(self, audio_path: Path, hints: Mapping[str, Any]) -> list[dict[str, Any]]:
         self.config.validate()
-        try:
-            import mlx_whisper
-        except ImportError as error:
-            raise ProcessingError("mlx-whisper is not installed in the configured Python environment.") from error
         domain_terms = hints.get("domain_terms", [])
         topic = hints.get("topic")
         initial_prompt = " ".join([str(topic or ""), *[str(term) for term in domain_terms]]).strip() or None
-        result = mlx_whisper.transcribe(
-            str(audio_path),
-            path_or_hf_repo=str(self.config.mlx_whisper_model_directory),
-            language="ko",
-            initial_prompt=initial_prompt,
-            word_timestamps=False,
-        )
-        segments = result.get("segments")
-        if not isinstance(segments, list):
-            raise ProcessingError("mlx-whisper did not return transcript segments")
-        return clean_transcribed_segments([
-            {"start": float(segment["start"]), "end": float(segment["end"]), "text": str(segment["text"]).strip()}
-            for segment in segments
-            if str(segment.get("text", "")).strip()
-        ])
+        with tempfile.TemporaryFile(prefix="damso-whisper-worker-", mode="w+b") as output:
+            output_descriptor = whisper_worker_output_descriptor(output.fileno())
+            request = {
+                "audio_path": str(audio_path),
+                "model_directory": str(self.config.mlx_whisper_model_directory),
+                "initial_prompt": initial_prompt,
+                "output_fd": output_descriptor,
+            }
+            process: subprocess.Popen[str] | None = None
+
+            def force_stop() -> None:
+                if process is not None:
+                    force_terminate_owned_process(process)
+
+            with deferred_processing_termination_handlers(force_stop) as arm:
+                try:
+                    process = subprocess.Popen(
+                        [sys.executable, "-m", "damso.processing", "--whisper-worker", "-"],
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        close_fds=True,
+                        pass_fds=(output_descriptor,),
+                    )
+                except OSError as error:
+                    raise ProcessingError("mlx-whisper worker could not be launched") from error
+                try:
+                    arm()
+                    process.communicate(json.dumps(request, ensure_ascii=False))
+                except BaseException:
+                    terminate_whisper_worker(process)
+                    raise
+            if process.returncode != 0:
+                raise ProcessingError("mlx-whisper worker failed to transcribe local audio")
+            try:
+                output.seek(0)
+                encoded_payload = output.read(MAX_WHISPER_WORKER_OUTPUT_BYTES + 1)
+            except OSError as error:
+                raise ProcessingError("mlx-whisper worker transcript segments could not be read") from error
+            if not encoded_payload:
+                raise ProcessingError("mlx-whisper worker did not produce transcript segments")
+            if len(encoded_payload) > MAX_WHISPER_WORKER_OUTPUT_BYTES:
+                raise ProcessingError("mlx-whisper worker transcript segments are too large")
+            try:
+                payload = json.loads(encoded_payload)
+            except (UnicodeError, json.JSONDecodeError) as error:
+                raise ProcessingError("mlx-whisper worker produced invalid transcript segments") from error
+            return normalize_mlx_segments(payload)
 
 
 class SherpaDiarizer:
@@ -252,18 +810,19 @@ class SherpaDiarizer:
             import numpy as np
         except ImportError as error:
             raise ProcessingError("numpy is required for local diarization.") from error
-        with tempfile.TemporaryDirectory(prefix="damso-diarize-") as temporary:
-            wav_path = Path(temporary) / "input.wav"
-            subprocess.run(
-                [self.ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(audio_path), "-ac", "1", "-ar", "16000", str(wav_path)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            with wave.open(str(wav_path), "rb") as source:
-                if source.getnchannels() != 1 or source.getframerate() != 16_000 or source.getsampwidth() != 2:
-                    raise ProcessingError("ffmpeg did not produce expected 16kHz mono PCM audio")
-                return np.frombuffer(source.readframes(source.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+        with cleanup_aware_processing_scope():
+            with tempfile.TemporaryDirectory(prefix="damso-diarize-") as temporary:
+                wav_path = Path(temporary) / "input.wav"
+                run_owned_subprocess(
+                    [self.ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(audio_path), "-ac", "1", "-ar", "16000", str(wav_path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                with wave.open(str(wav_path), "rb") as source:
+                    if source.getnchannels() != 1 or source.getframerate() != 16_000 or source.getsampwidth() != 2:
+                        raise ProcessingError("ffmpeg did not produce expected 16kHz mono PCM audio")
+                    return np.frombuffer(source.readframes(source.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
 
 
 class LocalProcessingPipeline:
@@ -271,14 +830,34 @@ class LocalProcessingPipeline:
         self.transcriber = transcriber
         self.diarizer = diarizer
 
-    def run_phase_one(self, recording_directory: Path, audio_path: Path, hints: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def run_phase_one(
+        self,
+        recording_directory: Path,
+        audio_path: Path,
+        hints: Mapping[str, Any] | None = None,
+        source_files: Sequence[Path] | None = None,
+        generation_id: str | None = None,
+    ) -> dict[str, Any]:
         if not audio_path.is_file():
             raise ProcessingError("audio input must be a local regular file")
-        hints = hints or {}
-        raw_segments = self.transcriber.transcribe(audio_path, hints)
-        intervals = self.diarizer.diarize(audio_path, hints.get("num_speakers"))
+        generation_id = generation_id or begin_phase_one_attempt(recording_directory)
+        effective_hints = merge_participant_hints(hints, captured_participant_names(recording_directory))
+        # Whisper runs in a one-shot child process. Its large Metal model is
+        # fully reclaimed by the OS before Sherpa loads its native runtimes.
+        raw_segments = self.transcriber.transcribe(audio_path, effective_hints)
+        explicit_num_speakers = effective_hints.get("num_speakers")
+        intervals = diarize_with_policy(
+            self.diarizer,
+            audio_path,
+            explicit_num_speakers,
+            len(effective_hints["participants"]),
+        )
+        embedding_method = getattr(self.diarizer, "speaker_embeddings", None)
+        speaker_embeddings = embedding_method(audio_path, intervals) if callable(embedding_method) else {}
         transcript = {
+            "generation_id": generation_id,
             "source_file": audio_path.name,
+            "source_files": [source.name for source in (source_files or [audio_path])],
             "language": "ko",
             "model": "mlx-whisper-large-v3",
             "duration": max((float(segment["end"]) for segment in raw_segments), default=0.0),
@@ -286,12 +865,16 @@ class LocalProcessingPipeline:
             "speakers": [],
         }
         transcript["speakers"] = sorted({segment["speaker"] for segment in transcript["segments"]})
-        embedding_method = getattr(self.diarizer, "speaker_embeddings", None)
-        speaker_embeddings = embedding_method(audio_path, intervals) if callable(embedding_method) else {}
         identification = identification_proposals(transcript, speaker_embeddings, canonical_peoples_for_recording(recording_directory))
+        identification["generation_id"] = generation_id
         try:
-            write_phase_one(recording_directory, hints, transcript, identification)
+            write_phase_one(recording_directory, effective_hints, transcript, identification)
             write_speaker_embeddings(recording_directory, speaker_embeddings)
+            atomic_write_json(
+                recording_directory / PHASE_ONE_COMPLETE_FILENAME,
+                {"generation_id": generation_id, "version": 1},
+            )
+            (recording_directory / PHASE_ONE_IN_PROGRESS_FILENAME).unlink()
         except ContractError as error:
             raise ProcessingError(str(error)) from error
         return transcript
@@ -342,20 +925,54 @@ def execute_request(request: Mapping[str, Any], environment: Mapping[str, str] |
         }
     recording_directory = canonical_recording_directory(request.get("recording_directory"))
     if operation == "phase-one":
-        audio_path = canonical_audio_path(recording_directory, request.get("audio_path"))
+        audio_path = canonical_audio_path(recording_directory, request.get("audio_path"), field_name="audio_path")
+        raw_system_audio_path = request.get("system_audio_path")
+        system_audio_path = (
+            canonical_audio_path(recording_directory, raw_system_audio_path, field_name="system_audio_path")
+            if raw_system_audio_path is not None
+            else legacy_system_audio_path(recording_directory, audio_path)
+        )
+        try:
+            same_source = system_audio_path is not None and os.path.samefile(system_audio_path, audio_path)
+        except OSError as error:
+            raise ProcessingError("audio sources could not be compared safely") from error
+        if same_source:
+            raise ProcessingError("system_audio_path must identify a second local audio source")
         hints = request.get("hints", {})
         if not isinstance(hints, Mapping):
             raise ProcessingError("processing hints must be an object")
+        generation_id = begin_phase_one_attempt(recording_directory)
+        processing_audio_path = (
+            combine_audio_sources(recording_directory, audio_path, system_audio_path)
+            if system_audio_path is not None
+            else audio_path
+        )
+        source_files = [audio_path, *([system_audio_path] if system_audio_path is not None else [])]
         config = LocalModelConfig.from_environment(environment)
         pipeline = LocalProcessingPipeline(MLXWhisperTranscriber(config), SherpaDiarizer(config))
-        transcript = pipeline.run_phase_one(recording_directory, audio_path, hints)
+        transcript = pipeline.run_phase_one(
+            recording_directory,
+            processing_audio_path,
+            hints,
+            source_files=source_files,
+            generation_id=generation_id,
+        )
         return {
             "ok": True,
             "operation": operation,
             "recording_stem": recording_directory.name,
             "stage": "speaker_review",
             "speaker_count": len(transcript["speakers"]),
-            "artifact_files": ["hint.json", "transcript.raw.json", "identification.json", "speaker-embeddings.npz", "transcript.md"],
+            "processed_audio_file": processing_audio_path.name if system_audio_path is not None else None,
+            "artifact_files": [
+                *([processing_audio_path.name] if system_audio_path is not None else []),
+                "hint.json",
+                "transcript.raw.json",
+                "identification.json",
+                "speaker-embeddings.npz",
+                "phase-one.complete.json",
+                "transcript.md",
+            ],
         }
     if operation == "apply-resolutions":
         resolutions = request.get("resolutions", {})
@@ -455,17 +1072,40 @@ def canonical_recording_directory(raw_value: Any) -> Path:
     return directory
 
 
-def canonical_audio_path(recording_directory: Path, raw_value: Any) -> Path:
+def canonical_audio_path(recording_directory: Path, raw_value: Any, field_name: str = "audio_path") -> Path:
     if not isinstance(raw_value, str) or not raw_value:
-        raise ProcessingError("audio_path is required")
-    audio_path = Path(raw_value).expanduser().resolve(strict=True)
-    if not audio_path.is_file():
-        raise ProcessingError("audio_path must be a local regular file")
+        raise ProcessingError(f"{field_name} is required")
+    requested_path = Path(raw_value).expanduser()
+    if requested_path.is_symlink():
+        raise ProcessingError(f"{field_name} must not be a symbolic link")
     try:
-        audio_path.relative_to(recording_directory)
-    except ValueError as error:
-        raise ProcessingError("audio_path must stay inside its canonical record") from error
+        audio_path = requested_path.resolve(strict=True)
+    except (FileNotFoundError, OSError) as error:
+        raise ProcessingError(f"{field_name} must identify an existing local audio file") from error
+    if not audio_path.is_file():
+        raise ProcessingError(f"{field_name} must be a local regular file")
+    try:
+        canonical_directory = recording_directory.resolve(strict=True)
+    except (FileNotFoundError, OSError) as error:
+        raise ProcessingError("recording_directory must be an existing canonical record") from error
+    if audio_path.parent != canonical_directory:
+        raise ProcessingError(f"{field_name} must stay directly inside its canonical record")
     return audio_path
+
+
+def legacy_system_audio_path(recording_directory: Path, audio_path: Path) -> Path | None:
+    """Adopt the sibling written by pre-contract local Damso recordings."""
+    metadata_path = recording_directory / "meeting.json"
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(metadata, Mapping) or metadata.get("source") != "local":
+        return None
+    candidate = recording_directory / "system-audio.m4a"
+    if candidate == audio_path or not candidate.exists():
+        return None
+    return canonical_audio_path(recording_directory, str(candidate), field_name="system_audio_path")
 
 
 def standalone_peoples_directory(raw_value: Any) -> Path:
@@ -601,8 +1241,23 @@ def read_request() -> Mapping[str, Any]:
     return request
 
 
+def isolate_request_process_group() -> None:
+    """Make the request root a group leader so its late-spawned children are addressable."""
+    if os.getpgrp() == os.getpid():
+        return
+    try:
+        os.setpgid(0, 0)
+    except OSError as error:
+        raise ProcessingError("local processing process group could not be isolated") from error
+
+
 def public_error(error: Exception) -> dict[str, str]:
     text = str(error).lower()
+    if "system_audio_path" in text:
+        return {
+            "code": "captured_system_audio_unavailable",
+            "next_action": "Restore the captured system audio inside this meeting folder, then retry local processing.",
+        }
     if "model" in text or "ffmpeg" in text or "mlx-whisper" in text or "sherpa" in text:
         return {
             "code": "local_dependency_unavailable",
@@ -623,10 +1278,21 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Meeting Hub local processing boundary")
-    parser.add_argument("--request", choices=["-"], required=True, help="Read one JSON request from stdin")
-    parser.parse_args()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--request", choices=["-"], help="Read one JSON request from stdin")
+    mode.add_argument("--whisper-worker", choices=["-"], help=argparse.SUPPRESS)
+    arguments = parser.parse_args()
+    if arguments.whisper_worker:
+        try:
+            execute_whisper_worker(read_request())
+        except Exception:
+            return 2
+        return 0
     try:
+        isolate_request_process_group()
         result = execute_request(read_request())
+    except ProcessingTerminated:
+        return 143
     except Exception as error:
         print(json.dumps({"ok": False, "error": public_error(error)}, sort_keys=True), flush=True)
         return 2
