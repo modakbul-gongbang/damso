@@ -28,13 +28,63 @@ func localProcessingRequestUsesOnlyCanonicalPathsAndHintFields() throws {
     let request = LocalProcessingRequest(
         recordingDirectory: "/tmp/Plaud/recordings/fixture",
         audioPath: "/tmp/Plaud/recordings/fixture/microphone.caf",
+        systemAudioPath: "/tmp/Plaud/recordings/fixture/system-audio.m4a",
         hints: LocalProcessingHints(.empty)
     )
     let fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
     #expect(fields?["operation"] as? String == "phase-one")
     #expect(fields?["recording_directory"] as? String != nil)
     #expect(fields?["audio_path"] as? String != nil)
+    #expect(fields?["system_audio_path"] as? String == "/tmp/Plaud/recordings/fixture/system-audio.m4a")
     #expect(fields?["transcript"] == nil)
+}
+
+@Test
+func localProcessingCommandOmitsAbsentSystemAudioForSingleTrackRecords() throws {
+    let request = LocalProcessingRequest(
+        recordingDirectory: "/tmp/Plaud/recordings/fixture",
+        audioPath: "/tmp/Plaud/recordings/fixture/audio.ogg",
+        hints: LocalProcessingHints(.empty)
+    )
+    let fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+    #expect(fields?["system_audio_path"] == nil)
+}
+
+@Test
+func localProcessingCommandDecodesProcessedAudioBasename() throws {
+    let data = Data(#"{"ok":true,"stage":"speaker_review","speaker_count":2,"processed_audio_file":"combined-audio.m4a"}"#.utf8)
+    let result = try JSONDecoder().decode(LocalProcessingResult.self, from: data)
+    #expect(result.processedAudioFile == "combined-audio.m4a")
+    #expect(result.speakerCount == 2)
+}
+
+@Test
+func localProcessingCommandPreservesActionableBackendErrorEnvelope() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let executable = directory.appendingPathComponent("processing-error")
+    try """
+    #!/bin/sh
+    printf '%s\\n' '{"ok":false,"error":{"code":"invalid_local_processing_request","next_action":"Restore the captured system audio and retry."}}'
+    exit 2
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let request = LocalProcessingRequest(
+        recordingDirectory: "/tmp/Plaud/recordings/fixture",
+        audioPath: "/tmp/Plaud/recordings/fixture/microphone.caf",
+        hints: LocalProcessingHints(.empty)
+    )
+
+    do {
+        _ = try LocalProcessingProcessRunner.runPhaseOne(request, command: LocalProcessingCommand(pythonExecutable: executable.path))
+        Issue.record("expected backend error")
+    } catch let error as LocalProcessingCommandError {
+        #expect(error == .backend(
+            code: "invalid_local_processing_request",
+            nextAction: "Restore the captured system audio and retry."
+        ))
+    }
 }
 
 @Test

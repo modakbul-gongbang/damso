@@ -82,7 +82,13 @@ struct MeetingProcessingArtifacts: Equatable, Sendable {
 }
 
 private struct StoredTranscript: Decodable {
+    var generationID: String?
     var segments: [StoredTranscriptSegment]
+
+    enum CodingKeys: String, CodingKey {
+        case generationID = "generation_id"
+        case segments
+    }
 }
 
 private struct StoredTranscriptSegment: Decodable {
@@ -93,7 +99,21 @@ private struct StoredTranscriptSegment: Decodable {
 }
 
 private struct StoredIdentification: Decodable {
+    var generationID: String?
     var proposals: [String: StoredSpeakerProposal]
+
+    enum CodingKeys: String, CodingKey {
+        case generationID = "generation_id"
+        case proposals
+    }
+}
+
+private struct StoredPhaseOneCompletion: Decodable {
+    var generationID: String
+
+    enum CodingKeys: String, CodingKey {
+        case generationID = "generation_id"
+    }
 }
 
 private struct StoredCleanupOverlay: Decodable {
@@ -245,6 +265,53 @@ extension MeetingStore {
     func hasPhaseOneTranscript(stem: String) -> Bool {
         let raw = CanonicalStoreLayout(root: rootURL).recordDirectory(stem: stem).appendingPathComponent("transcript.raw.json")
         return FileManager.default.fileExists(atPath: raw.path)
+    }
+
+    /// Crash recovery may skip phase one only after both artifacts required by
+    /// speaker review are present, decodable, and describe the same speakers.
+    /// A transcript can reach disk immediately before identification.json, so
+    /// transcript existence alone is not a completion marker.
+    func hasCompletePhaseOneReviewArtifacts(stem: String) -> Bool {
+        let directory = CanonicalStoreLayout(root: rootURL).recordDirectory(stem: stem)
+        let transcriptURL = directory.appendingPathComponent("transcript.raw.json")
+        let identificationURL = directory.appendingPathComponent("identification.json")
+        let completionURL = directory.appendingPathComponent("phase-one.complete.json")
+        let inProgressURL = directory.appendingPathComponent("phase-one.in-progress.json")
+        let safeRegularFile: (URL) -> Bool = { url in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
+                return false
+            }
+            return values.isRegularFile == true && values.isSymbolicLink != true
+        }
+        let inProgressValues = try? inProgressURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard inProgressValues?.isRegularFile != true, inProgressValues?.isSymbolicLink != true else {
+            return false
+        }
+        guard safeRegularFile(transcriptURL),
+              safeRegularFile(identificationURL),
+              let transcriptData = try? Data(contentsOf: transcriptURL),
+              let identificationData = try? Data(contentsOf: identificationURL),
+              let transcript = try? JSONDecoder().decode(StoredTranscript.self, from: transcriptData),
+              let identification = try? JSONDecoder().decode(StoredIdentification.self, from: identificationData) else {
+            return false
+        }
+        guard Set(transcript.segments.map(\.speaker)) == Set(identification.proposals.keys) else {
+            return false
+        }
+        switch (transcript.generationID, identification.generationID) {
+        case (nil, nil):
+            return true
+        case (.some(let transcriptGeneration), .some(let identificationGeneration))
+            where !transcriptGeneration.isEmpty && transcriptGeneration == identificationGeneration:
+            guard safeRegularFile(completionURL),
+                  let completionData = try? Data(contentsOf: completionURL),
+                  let completion = try? JSONDecoder().decode(StoredPhaseOneCompletion.self, from: completionData) else {
+                return false
+            }
+            return completion.generationID == transcriptGeneration
+        default:
+            return false
+        }
     }
 
     private func speakerHintsURL(stem: String) -> URL {

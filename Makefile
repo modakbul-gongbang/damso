@@ -20,7 +20,7 @@ test-mcp:
 	$(BACKEND_ENV) $(PYTHON) -m unittest backend.tests.test_mcp -v
 
 test-privacy:
-	$(BACKEND_ENV) $(PYTHON) -m unittest backend.tests.test_privacy backend.tests.test_agent_boundary backend.tests.test_diagnostics -v
+	$(BACKEND_ENV) $(PYTHON) -m unittest backend.tests.test_privacy backend.tests.test_agent_boundary backend.tests.test_diagnostics backend.tests.test_processing_cli -v
 
 test-recovery:
 	$(SWIFT) test

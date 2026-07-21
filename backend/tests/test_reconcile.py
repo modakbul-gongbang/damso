@@ -110,6 +110,17 @@ class ReconcileTests(unittest.TestCase):
             seg = raw["segments"][0]
             self.assertGreaterEqual(seg["end"], seg["start"])
 
+    def test_reconcile_preserves_multi_source_provenance(self):
+        transcript = dict(LEGACY_TRANSCRIPT)
+        transcript["source_file"] = "combined-audio.m4a"
+        transcript["source_files"] = ["microphone.caf", "system-audio.m4a"]
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = Path(tmp) / "rec"
+            _write(rec, transcript)
+            self.assertEqual(reconcile.reconcile_record(rec).status, "reconciled")
+            raw = json.loads((rec / "transcript.raw.json").read_text(encoding="utf-8"))
+            self.assertEqual(raw["source_files"], ["microphone.caf", "system-audio.m4a"])
+
 
 if __name__ == "__main__":
     unittest.main()
