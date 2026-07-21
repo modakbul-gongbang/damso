@@ -8,7 +8,7 @@ struct ModelSetupSettingsView: View {
         SettingsGroup(title: Loc.tr("Local Processing Models")) {
             SettingsRow(
                 title: setup.state.title,
-                subtitle: Loc.tr("Whisper large-v3 transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.")
+                subtitle: Loc.tr("Whisper large-v3-turbo transcribes audio and Sherpa separates speakers on this Mac. Meeting audio, transcripts, Plaud sessions, and credentials are never uploaded during setup.")
             ) {
                 HStack(spacing: 12) {
                     Image(systemName: statusSymbol)
@@ -50,7 +50,7 @@ struct ModelSetupSettingsView: View {
                 setup.install()
             }
         } message: {
-            Text(Loc.tr("This user-initiated action downloads the required Python packages, Whisper large-v3, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data."))
+            Text(Loc.tr("This user-initiated action downloads the required Python packages, Whisper large-v3-turbo, and Sherpa diarization models into a local Damso models folder. It does not upload meeting data."))
         }
     }
 

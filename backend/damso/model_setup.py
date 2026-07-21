@@ -20,7 +20,14 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 
-WHISPER_REPOSITORY = "mlx-community/whisper-large-v3-mlx"
+# large-v3-turbo keeps the large-v3 encoder but distils the decoder to four
+# layers. Measured on a 55 minute Korean meeting, transcription dropped from
+# 491s to 134s of wall clock and from 180s to 32s of CPU. The cost is word-level
+# accuracy on proper nouns, which the people-seeded prompt largely offsets.
+WHISPER_REPOSITORY = "mlx-community/whisper-large-v3-turbo"
+# The installer skips a directory that already holds config.json, so the
+# directory name has to change for an existing install to pick up a new model.
+WHISPER_DIRECTORY_NAME = "mlx-whisper-large-v3-turbo"
 SHERPA_SEGMENTATION_ARCHIVE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
 SHERPA_EMBEDDING_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
 SHERPA_EMBEDDING_FILENAME = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
@@ -42,7 +49,7 @@ class LocalModelPaths:
 
     @property
     def whisper_directory(self) -> Path:
-        return self.root / "mlx-whisper-large-v3"
+        return self.root / WHISPER_DIRECTORY_NAME
 
     @property
     def sherpa_directory(self) -> Path:

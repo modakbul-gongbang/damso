@@ -10,7 +10,7 @@ The name reads two ways in Korean: *담소* (a friendly chat) and *담다 + 소�
 
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black?logo=apple)
 ![Swift 6](https://img.shields.io/badge/Swift-6.0-F05138?logo=swift&logoColor=white)
-![Whisper](https://img.shields.io/badge/Whisper-large--v3-6D28D9)
+![Whisper](https://img.shields.io/badge/Whisper-large--v3--turbo-6D28D9)
 ![Privacy](https://img.shields.io/badge/audio-never%20leaves%20your%20Mac-2E7D32)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -73,6 +73,7 @@ Read this before using automatic summaries:
 
 - Audio never leaves your Mac. Transcription (mlx-whisper) and diarization (sherpa-onnx) are fully local.
 - Meeting detection and participant capture are local signals (CoreAudio process activity, your own browser via the chromux extension). Participant names are stored in the meeting folder and never sent anywhere except as part of the transcript context you already approved.
+- Names from your people directory seed the local transcription prompt so Whisper spells them consistently. Up to 20 recently seen profile names are passed in memory to the local mlx-whisper process; they are never written to `hint.json` and never leave this Mac.
 - External Sync talks to Plaud **only through the official Plaud CLI**, read-only. Your Plaud session lives in `~/.plaud`, owned by the CLI; Damso never reads, stores, or logs a token. Login happens in your browser via `plaud login`, and downloaded audio goes straight into your local store.
 - **Transcript text is sent to your selected agent CLI (Claude Code or Codex) automatically after you confirm the speakers of a meeting.** Those CLIs talk to their cloud model providers with your signed-in account. There is no per-meeting confirmation step and no sensitivity flag - if a meeting should never reach an LLM provider, do not confirm its speakers, or work without a signed-in agent CLI.
 - The agent CLI is sandboxed away from your meeting store (`sandbox-exec` denies the storage root), gets an empty temporary working directory, has its built-in tools disabled, and its response is validated against a fixed JSON schema.
