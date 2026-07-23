@@ -401,6 +401,38 @@
         }
       }
     },
+    "Add a known person": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a known person"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "등록된 사람 추가"
+          }
+        }
+      }
+    },
+    "Add a name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 추가"
+          }
+        }
+      }
+    },
     "Add to profile": {
       "localizations": {
         "en": {
@@ -733,6 +765,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "에이전트에게 묻는 중..."
+          }
+        }
+      }
+    },
+    "Auto": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
           }
         }
       }
@@ -1197,6 +1245,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "모든 화자 카드를 확정하거나 건너뛰면 자동 요약이 시작됩니다."
+          }
+        }
+      }
+    },
+    "Confirm speaker names first to have them appear in the summary.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm speaker names first to have them appear in the summary."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약에 이름이 나오게 하려면 먼저 화자 이름을 확정하세요."
           }
         }
       }
@@ -1825,6 +1889,22 @@
         }
       }
     },
+    "Expected speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예상 인원"
+          }
+        }
+      }
+    },
     "Expected speakers: %@": {
       "localizations": {
         "en": {
@@ -1853,6 +1933,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "External Sync"
+          }
+        }
+      }
+    },
+    "Fewer speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fewer speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인원 줄이기"
           }
         }
       }
@@ -2897,6 +2993,22 @@
         }
       }
     },
+    "More speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인원 늘리기"
+          }
+        }
+      }
+    },
     "My Profile": {
       "localizations": {
         "en": {
@@ -3649,6 +3761,22 @@
         }
       }
     },
+    "Participants (optional)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participants (optional)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참가자 (선택)"
+          }
+        }
+      }
+    },
     "Participants, separated by commas": {
       "localizations": {
         "en": {
@@ -3901,6 +4029,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "재생 가능한 형식으로 변환 중..."
+          }
+        }
+      }
+    },
+    "Press Generate summary at the bottom right whenever you like. Confirming speaker names first is optional; it just lets their names appear in the summary. You can regenerate the summary later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Generate summary at the bottom right whenever you like. Confirming speaker names first is optional; it just lets their names appear in the summary. You can regenerate the summary later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 아래의 요약 생성을 원할 때 누르세요. 화자 이름 확정은 선택 사항이며, 요약에 이름이 나오게 할 뿐입니다. 요약은 나중에 다시 생성할 수 있습니다."
           }
         }
       }
@@ -4321,6 +4465,22 @@
         }
       }
     },
+    "Regenerate summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regenerate summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 다시 생성"
+          }
+        }
+      }
+    },
     "Remove alias %@": {
       "localizations": {
         "en": {
@@ -4333,6 +4493,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "별칭 %@ 삭제"
+          }
+        }
+      }
+    },
+    "Remove participant": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove participant"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참가자 제거"
           }
         }
       }
@@ -4461,6 +4637,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "로컬 상태를 확인하고 재시도하세요."
+          }
+        }
+      }
+    },
+    "Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 트랜스크립트로 요약을 다시 생성합니다. 화자 이름을 확정한 뒤 실행하면 요약에 이름이 반영됩니다."
           }
         }
       }
@@ -4621,6 +4813,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "서비스 연결 불가 · 자동 재시도"
+          }
+        }
+      }
+    },
+    "Set speakers before transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set speakers before transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 전에 화자 수를 지정하세요"
           }
         }
       }
@@ -4929,6 +5137,22 @@
         }
       }
     },
+    "Start transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 시작"
+          }
+        }
+      }
+    },
     "Starts a recording without requiring hints": {
       "localizations": {
         "en": {
@@ -4941,6 +5165,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "힌트 없이 바로 녹음을 시작합니다"
+          }
+        }
+      }
+    },
+    "Starts a recording. Set the expected speaker count above first for the most reliable speaker separation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts a recording. Set the expected speaker count above first for the most reliable speaker separation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 시작합니다. 화자 분리를 가장 정확하게 하려면 위에서 예상 인원을 먼저 지정하세요."
           }
         }
       }
@@ -5917,6 +6157,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 미팅에서 나온 인물 프로필 메모 제안이에요. 결정하기 전에는 아무것도 저장되지 않아요."
+          }
+        }
+      }
+    },
+    "This imported recording is not transcribed yet. Set how many people speak in it for the most reliable speaker separation, or leave it on Auto to skip.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This imported recording is not transcribed yet. Set how many people speak in it for the most reliable speaker separation, or leave it on Auto to skip."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 가져온 녹음은 아직 전사되지 않았습니다. 화자 분리를 가장 정확하게 하려면 참여 인원을 지정하고, 건너뛰려면 자동으로 두세요."
           }
         }
       }

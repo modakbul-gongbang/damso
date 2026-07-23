@@ -29,7 +29,11 @@ struct MeetingMenuBarCard: View {
                     NSApp.activate(ignoringOtherApps: true)
                     openWindow(id: "main")
                     openMainWindow()
-                }
+                },
+                // Only offer the count on the manual idle card (no live
+                // detection session); a detection-driven start keeps its own
+                // fast path.
+                speakerCount: panelModel.phase == nil ? $workspace.plannedSpeakerCount : nil
             )
             footer
         }

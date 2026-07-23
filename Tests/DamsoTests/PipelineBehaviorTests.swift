@@ -556,6 +556,26 @@ func generatingTheSummaryAfterConfirmingSpeakersComposesTheDisplayTitle() async 
 }
 
 @Test @MainActor
+func summaryRunsWithoutConfirmingSpeakersThenCanBeRegeneratedAfterNaming() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    // No resolutions applied: confirming speakers is no longer a precondition,
+    // so the summary runs on the raw SPEAKER labels as an escape hatch.
+    #expect(controller.selectedRecord?.resolutions.isEmpty == true)
+    await controller.runSummary()
+    #expect(backend.summaryRequests.count == 1)
+    #expect(try store.load(stem: "pipeline-fixture").stage == .complete)
+
+    // Naming a speaker afterward and regenerating sends the transcript again,
+    // so the confirmed names can flow into a fresh summary.
+    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
+    await controller.runSummary()
+    #expect(backend.summaryRequests.count == 2)
+    #expect(try store.load(stem: "pipeline-fixture").stage == .complete)
+}
+
+@Test @MainActor
 func summaryFailureKeepsSpeakerConfirmationsAndStaysRetryable() async throws {
     let (controller, backend, store, root) = try makeWorkspace()
     defer { try? FileManager.default.removeItem(at: root) }

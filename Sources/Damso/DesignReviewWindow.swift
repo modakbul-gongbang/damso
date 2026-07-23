@@ -30,6 +30,8 @@ struct DesignReviewWindow: View {
     @State private var personEmailStatus: String?
     @State private var mergeSourcePerson: LocalPersonProfile?
     @State private var showOriginalTranscript = false
+    @State private var heldImportSpeakerCount = 0
+    @State private var heldImportParticipants: [String] = []
     @State private var meetingSearchText = ""
     @State private var peopleSearchText = ""
     @FocusState private var isMeetingSearchFocused: Bool
@@ -168,16 +170,33 @@ struct DesignReviewWindow: View {
         .navigationTitle("Damso")
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            RecordHeroButton(
-                isRecording: workspace.isRecording,
-                isPending: workspace.isCaptureStartPending
-            ) {
-                Task { await workspace.performPrimaryAction() }
+            VStack(spacing: 10) {
+                if !workspace.isRecording && !workspace.isCaptureStartPending {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SpeakerCountStepper(count: $workspace.plannedSpeakerCount)
+                        ParticipantPlanField(
+                            participants: $workspace.plannedParticipants,
+                            knownPeople: workspace.people.map { $0.name }
+                        )
+                    }
+                    .padding(10)
+                    .background(DamsoTokens.canvas, in: RoundedRectangle(cornerRadius: DamsoTokens.compactRadius))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DamsoTokens.compactRadius)
+                            .strokeBorder(DamsoTokens.hairline)
+                    )
+                }
+                RecordHeroButton(
+                    isRecording: workspace.isRecording,
+                    isPending: workspace.isCaptureStartPending
+                ) {
+                    Task { await workspace.performPrimaryAction() }
+                }
+                .accessibilityLabel(workspace.isRecording ? Loc.tr("Stop recording") : Loc.tr("Record now"))
+                .accessibilityIdentifier("damso.primary-record-action")
+                .accessibilityHint(workspace.isRecording ? Loc.tr("Stops the current recording and starts local processing") : Loc.tr("Starts a recording. Set the expected speaker count above first for the most reliable speaker separation."))
             }
             .padding(12)
-            .accessibilityLabel(workspace.isRecording ? Loc.tr("Stop recording") : Loc.tr("Record now"))
-            .accessibilityIdentifier("damso.primary-record-action")
-            .accessibilityHint(workspace.isRecording ? Loc.tr("Stops the current recording and starts local processing") : Loc.tr("Starts a recording without requiring hints"))
         }
     }
 
@@ -995,6 +1014,9 @@ struct DesignReviewWindow: View {
                 .background(DamsoTokens.warning.opacity(0.10), in: RoundedRectangle(cornerRadius: DamsoTokens.compactRadius))
         }
 
+        if workspace.isHeldImport(record) {
+            heldImportPrompt(record)
+        } else {
         switch record.stage {
         case .captured, .queued, .transcribing, .summarizing:
             BlockCard(block: DamsoTokens.blockLime) {
@@ -1063,6 +1085,41 @@ struct DesignReviewWindow: View {
             }
         case .complete:
             EmptyView()
+        }
+        }
+    }
+
+    /// Pre-transcription prompt for an imported meeting: the user sets the
+    /// expected speaker count (and optionally participant names) before the
+    /// heavy pipeline runs, or leaves the count on Auto to skip. This is the
+    /// only place a provider import starts transcribing.
+    private func heldImportPrompt(_ record: MeetingRecord) -> some View {
+        BlockCard(block: DamsoTokens.blockLilac) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(Loc.tr("Set speakers before transcription"), systemImage: "person.2.wave.2.fill")
+                    .font(.headline)
+                Text(Loc.tr("This imported recording is not transcribed yet. Set how many people speak in it for the most reliable speaker separation, or leave it on Auto to skip."))
+                    .opacity(0.75)
+                SpeakerCountStepper(count: $heldImportSpeakerCount)
+                ParticipantPlanField(
+                    participants: $heldImportParticipants,
+                    knownPeople: workspace.people.map { $0.name }
+                )
+                HStack {
+                    Spacer()
+                    Button(Loc.tr("Start transcription"), systemImage: "waveform") {
+                        workspace.startHeldImport(
+                            stem: record.stem,
+                            speakerCount: heldImportSpeakerCount,
+                            participants: heldImportParticipants
+                        )
+                        heldImportSpeakerCount = 0
+                        heldImportParticipants = []
+                    }
+                    .buttonStyle(DamsoPillButtonStyle())
+                    .accessibilityIdentifier("damso.start-held-import")
+                }
+            }
         }
     }
 
@@ -1262,14 +1319,17 @@ struct DesignReviewWindow: View {
         }
     }
 
-    /// Explicit summary trigger. The summary no longer starts automatically on
-    /// the last confirmation; the user decides when the transcript is sent to
-    /// the agent. Floats over the detail pane's bottom-trailing corner so it
-    /// stays visible past a long speaker-card list, on every tab.
+    /// Explicit summary trigger. The summary no longer starts automatically,
+    /// and confirming speakers is no longer required first: the user decides
+    /// when the transcript is sent to the agent, even while some speakers are
+    /// still unnamed (the summary then uses the raw SPEAKER labels, and a later
+    /// re-summary picks up the confirmed names). Floats over the detail pane's
+    /// bottom-trailing corner so it stays visible past a long speaker-card
+    /// list, on every tab.
     @ViewBuilder
     private func floatingSummaryButton(_ record: MeetingRecord) -> some View {
         let hasSummary = record.summary != nil || record.corrections?.summary != nil
-        if record.stage == .speakerReview, allSpeakersResolved(record), !hasSummary {
+        if record.stage == .speakerReview, !hasSummary {
             Button {
                 Task { await workspace.runSummary() }
             } label: {
@@ -1579,6 +1639,19 @@ struct DesignReviewWindow: View {
                             ActionItemCalendarSection(workspace: workspace, record: record, summary: summary)
                         }
                     }
+                    Divider().overlay(DamsoTokens.hairline)
+                    HStack(spacing: 8) {
+                        Button(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Regenerate summary"), systemImage: "arrow.clockwise") {
+                            Task { await workspace.runSummary() }
+                        }
+                        .buttonStyle(DamsoPillButtonStyle())
+                        .disabled(workspace.isRequestingSummary || workspace.isApplyingSpeakerResolution || workspace.isRecording)
+                        .help(Loc.tr("Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them."))
+                        .accessibilityIdentifier("damso.regenerate-summary")
+                        Text(Loc.tr("Confirm speaker names first to have them appear in the summary."))
+                            .font(.damsoMonoCaption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if [.captured, .queued, .transcribing].contains(record.stage) {
@@ -1590,19 +1663,18 @@ struct DesignReviewWindow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if record.stage == .speakerReview {
-                if allSpeakersResolved(record) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(Loc.tr("Ready to summarize"))
-                            .font(.headline)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(Loc.tr("Ready to summarize"))
+                        .font(.headline)
+                    if allSpeakersResolved(record) {
                         Text(Loc.tr("Every speaker is confirmed. Press Generate summary at the bottom right to create the summary and title."))
                             .foregroundStyle(.secondary)
+                    } else {
+                        Text(Loc.tr("Press Generate summary at the bottom right whenever you like. Confirming speaker names first is optional; it just lets their names appear in the summary. You can regenerate the summary later."))
+                            .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(Loc.tr("The summary and title are created after the speakers are confirmed."))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else if record.stage == .summarizing {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(Loc.tr("Creating the summary"))

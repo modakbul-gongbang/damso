@@ -138,6 +138,10 @@ struct MeetingPanelCardView: View {
     var startDisabled = false
     var failureMessage: String?
     var onOpenApp: (() -> Void)?
+    /// Optional pre-recording speaker-count plan, shown above the manual-start
+    /// button on the menu-bar idle card. The floating detection panel leaves
+    /// this nil, so the stepper appears only where a manual recording begins.
+    var speakerCount: Binding<Int>?
 
     @State private var pairing = MeetingPanelPairingStatus.checking
 
@@ -195,6 +199,9 @@ struct MeetingPanelCardView: View {
 
     private var idleBody: some View {
         VStack(alignment: .leading, spacing: DamsoTokens.spacingSM) {
+            if let speakerCount {
+                SpeakerCountStepper(count: speakerCount)
+            }
             Button {
                 actions.record()
             } label: {

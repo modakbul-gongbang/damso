@@ -303,7 +303,7 @@ private func writePlayableAudio(to url: URL) throws {
 }
 
 @Test @MainActor
-func importedRecordingBecomesAPlaudSourcedMeetingAndStartsThePipeline() async throws {
+func importedRecordingIsHeldThenStartsThePipelineWithTheSpeakerPlan() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = MeetingStore(root: root, minimumFreeBytes: 0)
@@ -331,12 +331,32 @@ func importedRecordingBecomesAPlaudSourcedMeetingAndStartsThePipeline() async th
     #expect(record.durationSeconds ?? 0 > 0)
     #expect(record.originalAudioFile == "recording.caf")
 
-    // The local pipeline starts automatically for the imported meeting.
+    // A fresh import is held before transcription so the user can set the
+    // expected speaker count first; nothing is transcribed automatically.
+    workspace.refreshLibrary()
+    #expect(workspace.isHeldImport(record))
+    for _ in 0..<10 where backend.phaseOneRequests.isEmpty {
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    #expect(backend.phaseOneRequests.isEmpty)
+
+    // Releasing the hold applies the plan and starts the local pipeline; the
+    // chosen speaker count rides through to the diarizer request.
+    workspace.startHeldImport(stem: record.stem, speakerCount: 3, participants: ["송주은"])
     for _ in 0..<50 where backend.phaseOneRequests.isEmpty {
         try await Task.sleep(nanoseconds: 100_000_000)
     }
     #expect(backend.phaseOneRequests.count == 1)
     #expect(backend.phaseOneRequests.first?.systemAudioPath == nil)
+    #expect(backend.phaseOneRequests.first?.hints.numSpeakers == 3)
+    #expect(backend.phaseOneRequests.first?.hints.participants == ["송주은"])
+    #expect(try store.load(stem: record.stem).isHeldImportCleared)
+}
+
+private extension MeetingRecord {
+    /// After the hold is released the record leaves `.captured`, so this is a
+    /// readable stand-in for "no longer awaiting a speaker plan".
+    var isHeldImportCleared: Bool { stage != .captured }
 }
 
 /// While its turn is actually running, an imported meeting shows the live

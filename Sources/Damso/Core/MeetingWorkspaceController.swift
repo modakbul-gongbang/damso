@@ -113,6 +113,14 @@ final class MeetingWorkspaceController: ObservableObject {
     @Published private(set) var isRequestingSummary = false
     @Published private(set) var speakerSuggestions: [String: [SpeakerSuggestion]] = [:]
     @Published private(set) var isSuggestingSpeakers = false
+    /// Optional pre-recording plan the user sets next to the Record button on
+    /// either surface (main window or menu-bar card). `plannedSpeakerCount` of 0
+    /// means "unknown / let diarization decide"; a positive value pins the
+    /// diarizer to exactly that many speakers, which is the only reliable way to
+    /// stop over-segmentation on low-quality audio. Consumed and reset by
+    /// `startNow()`.
+    @Published var plannedSpeakerCount: Int = 0
+    @Published var plannedParticipants: [String] = []
 
     private let store: MeetingStore
     private let capture: any RecordingCapture
@@ -161,6 +169,28 @@ final class MeetingWorkspaceController: ObservableObject {
         } else {
             await startNow()
         }
+    }
+
+    /// Folds the optional pre-recording plan (speaker count, participant names)
+    /// into a base hint set. A count of 0 leaves diarization on auto; planned
+    /// participant names are appended case-insensitively without duplicating
+    /// names the base hints already carry.
+    func plannedHints(basedOn base: MeetingHints) -> MeetingHints {
+        var hints = base
+        if plannedSpeakerCount > 0 {
+            hints.numSpeakers = plannedSpeakerCount
+        }
+        if !plannedParticipants.isEmpty {
+            var participants = hints.participants
+            for name in plannedParticipants {
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      !participants.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else { continue }
+                participants.append(trimmed)
+            }
+            hints.participants = participants
+        }
+        return hints
     }
 
     func updateHints(_ hints: MeetingHints) {
@@ -275,13 +305,10 @@ final class MeetingWorkspaceController: ObservableObject {
             recoveryAction = Loc.tr("Finish local transcription before the summary step can run.")
             return
         }
-        let allResolved = artifacts.proposals.allSatisfy { proposal in
-            record.resolutions.contains { $0.speaker == proposal.speaker }
-        }
-        guard allResolved else {
-            recoveryAction = Loc.tr("Confirm or skip every speaker card to start the automatic summary.")
-            return
-        }
+        // Confirming speakers is no longer a precondition. The summary can run on
+        // the raw SPEAKER labels (backend falls back to transcript.raw.json), and
+        // re-running the summary after speakers are named picks up the confirmed
+        // transcript automatically.
         record.stage = .summarizing
         record.lastErrorCode = nil
         do {
@@ -893,11 +920,12 @@ final class MeetingWorkspaceController: ObservableObject {
             return
         }
         do {
+            let effectiveHints = plannedHints(basedOn: session.hints)
             let draft = MeetingDraft(
                 stem: Self.makeStem(),
                 source: .local,
-                title: session.hints.topic ?? Loc.tr("Untitled local meeting"),
-                hints: session.hints
+                title: effectiveHints.topic ?? Loc.tr("Untitled local meeting"),
+                hints: effectiveHints
             )
             let record = try store.createRecord(draft)
             try store.commit(record)
@@ -915,6 +943,10 @@ final class MeetingWorkspaceController: ObservableObject {
             state = .recording
             recordingStartedAt = Date()
             recoveryAction = nil
+            // The plan applied to this recording; clear it so the next one
+            // starts from a clean slate instead of inheriting a stale count.
+            plannedSpeakerCount = 0
+            plannedParticipants = []
             Self.recordingLogger.notice("recording_start_succeeded")
         } catch {
             Self.recordingLogger.error("recording_start_failed code=\(self.recordingStartErrorCode(for: error), privacy: .public)")
@@ -1023,11 +1055,47 @@ final class MeetingWorkspaceController: ObservableObject {
     /// commits imported recordings through the same store contract.
     var meetingStore: MeetingStore { store }
 
-    /// Registers a freshly committed external import in the visible library
-    /// and starts its local pipeline. Selection stays where the user left it.
+    /// Registers a freshly committed external import in the visible library.
+    /// A re-synced or adopted record that already carries a transcript is
+    /// promoted straight to speaker review. A genuinely new import that still
+    /// needs transcription is held at `.captured` instead of transcribing
+    /// immediately, so the user can set the expected speaker count first (the
+    /// only reliable guard against diarization over-segmentation on
+    /// low-quality provider audio). `startHeldImport` releases the hold.
+    /// Selection stays where the user left it.
     func noteExternalImport(stem: String) {
         guard let record = try? store.load(stem: stem) else { return }
         replace(record)
+        if store.hasCompletePhaseOneReviewArtifacts(stem: stem) {
+            processImportedMeeting(stem: stem)
+        }
+    }
+
+    /// True while an imported meeting is waiting for the user's speaker-count
+    /// plan before transcription begins.
+    func isHeldImport(_ record: MeetingRecord) -> Bool {
+        record.source != .local
+            && record.stage == .captured
+            && !store.hasCompletePhaseOneReviewArtifacts(stem: record.stem)
+    }
+
+    /// Releases a held import: records the optional speaker-count and
+    /// participant plan on the meeting, then starts the normal local pipeline.
+    /// A `speakerCount` of 0 leaves diarization on auto (the user skipped).
+    func startHeldImport(stem: String, speakerCount: Int, participants: [String]) {
+        guard var record = try? store.load(stem: stem), isHeldImport(record) else { return }
+        var hints = record.hints
+        if speakerCount > 0 { hints.numSpeakers = speakerCount }
+        for name in participants {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !hints.participants.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else { continue }
+            hints.participants.append(trimmed)
+        }
+        record.hints = hints
+        try? store.update(record)
+        replace(record)
+        if selectedRecord?.stem == stem { selectedRecord = record }
         processImportedMeeting(stem: stem)
     }
 
