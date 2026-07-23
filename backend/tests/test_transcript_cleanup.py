@@ -64,6 +64,14 @@ class CleanupPromptTests(unittest.TestCase):
         self.assertIn('"index": 0' .replace(" ", ""), prompt.replace(" ", ""))
         self.assertIn("Never rephrase", prompt)
 
+    def test_prompt_instructs_disfluency_removal_but_only_deletes(self):
+        prompt = build_cleanup_prompt({"segments": [{"speaker": "A", "text": "hello"}]})
+        # Aggressive policy: fillers, stutters, and false starts are cleaned.
+        self.assertIn("fillers", prompt)
+        self.assertIn("false starts", prompt)
+        # But the pass may only delete words, never add or rewrite them.
+        self.assertIn("ONLY delete words", prompt)
+
 
 class CleanupExecuteTests(unittest.TestCase):
     def test_complete_result_writes_overlay_and_keeps_original(self):
