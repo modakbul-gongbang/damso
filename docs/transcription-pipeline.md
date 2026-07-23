@@ -100,6 +100,51 @@ change together; `INV-whisper-model-directory` enforces it.
 The old directory is orphaned rather than deleted, which doubles as the rollback
 path: reverting the constants restores the previous model with no re-download.
 
+## Speaker clustering: NME-SC works only with a known speaker count
+
+`sherpa-onnx`'s `FastClusteringConfig.num_clusters` is not a "disable merging"
+knob. Passing a count above the segment count does not produce singleton
+clusters; it collapses everything into one. The vendored clustering library
+(`hclust-cpp`, same code as https://github.com/cdalitz/hclust-cpp) has
+`cutree_k`'s `if (nclust > n || nclust < 2) { all labels = 0 }`, confirmed by
+reading the source directly. Measured: `num_clusters=1000` and `100000`
+against 15-45 real segments both gave exactly 1 speaker.
+
+A clustering `threshold` near zero, not `num_clusters`, is the working proxy
+for per-segment boundaries when a raw, unclustered timeline is needed:
+`FastClusteringConfig(threshold=1e-6)` gave 183 segments and 179 distinct
+labels on a 3-minute real clip, essentially one label per segment.
+`cutree_cdist` walks merge heights ascending and stops at the first one
+`>= threshold`; real cosine dissimilarities are never that close to zero, so
+almost nothing merges.
+
+`backend/damso/nme_sc.py` ports NME-SC (Park et al., 2019, via NVIDIA NeMo's
+`offline_clustering.py`) as pure numpy with no new dependency. It replaces
+`FastClusteringConfig`'s AHC decision in `SherpaDiarizer.diarize()`, but only
+when an oracle speaker count is supplied from the app's pre-recording
+speaker-count prompt. Validated end to end on two real recordings: an 11:34
+mic-only recording previously stuck at 15 speakers under the
+merge-duration heuristic dropped to exactly 2, balanced 2824s/2354s with
+coherent turn-taking, given `num_speakers=2`.
+
+Auto mode (no count given) keeps the original AHC plus
+`merge_tiny_speaker_fragments` path unchanged. NME-SC's own eigengap
+speaker-count *estimate* collapsed to 1 speaker on both that hard recording
+and a separate, known-good 2-speaker recording. Not a coding bug: NeMo's
+`g_p` selection criterion is tuned against dense, fixed-duration overlapping
+multiscale windows (hundreds of redundant points per speaker); this pipeline
+feeds it sparse raw VAD-based segments (roughly 60 segments per speaker for a
+5-minute 2-speaker clip), and at that density a larger, fully-connected
+neighbor graph always scores better than the smaller disconnected one that
+actually reveals two speakers. Revisiting auto-K would need NeMo's multiscale
+windowing or a more robust component-count estimator; not attempted.
+
+The oracle path costs roughly double the original single-pass diarization: a
+near-zero-threshold pass for raw boundaries, then a second full
+embedding-extraction pass over every raw segment before NME-SC re-clusters
+them. Measured on the full 102-minute 11:34 recording: 1160s versus the
+roughly 625s a single AHC pass takes at that length.
+
 ## Measured dead ends
 
 Do not spend time re-testing these.

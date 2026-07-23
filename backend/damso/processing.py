@@ -28,6 +28,7 @@ from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 from .contracts import ContractError, apply_resolutions, atomic_write_json, ensure_safe_stem, normalize_hint, write_phase_one
 from .model_setup import SHERPA_EMBEDDING_FILENAME, WHISPER_DIRECTORY_NAME, default_model_root
+from .nme_sc import cluster_embeddings
 from .people import VOICE_EMBEDDING_MODEL, append_person_note, apply_people_resolutions, compatible_voice_candidates, remove_person_alias, set_person_email
 
 
@@ -43,7 +44,6 @@ MAX_REQUEST_BYTES = 64 * 1024
 COMBINED_AUDIO_FILENAME = "combined-audio.m4a"
 PHASE_ONE_IN_PROGRESS_FILENAME = "phase-one.in-progress.json"
 PHASE_ONE_COMPLETE_FILENAME = "phase-one.complete.json"
-FRAGMENT_MAX_TURN_SECONDS = 3.0
 FRAGMENT_TOTAL_SECONDS_CAP = 60.0
 FRAGMENT_SPEECH_RATIO = 0.05
 MAX_WHISPER_WORKER_OUTPUT_BYTES = 16 * 1024 * 1024
@@ -54,6 +54,19 @@ OWNED_SUBPROCESS_TERMINATION_GRACE_SECONDS = 5.0
 # 337s. Trading 30s of wall clock for 433s of CPU is the better deal for work
 # that runs in the background while the user keeps using the Mac.
 SHERPA_EMBEDDING_THREADS = 2
+
+# sherpa-onnx's Python bindings only expose the fused segmentation+embedding+
+# clustering call, with no way to get segment boundaries before clustering
+# merges anything. A clustering threshold near zero is used as a boundary-only
+# proxy instead: cutree_cdist (see fastcluster's hclust-cpp) walks merge
+# heights ascending and stops at the first one >= threshold, so a threshold
+# below any real cosine dissimilarity keeps every raw segment in its own
+# cluster. Measured on a real 3-minute clip: threshold=0.0 gave 183 segments
+# with 179 distinct labels, i.e. almost 1:1. A tiny positive epsilon avoids a
+# floating-point tie landing exactly on zero.
+RAW_BOUNDARY_CLUSTERING_THRESHOLD = 1e-6
+MIN_NMESC_SEGMENT_SAMPLES = int(0.3 * 16_000)
+NMESC_MAX_SPEAKERS_CAP = 20
 
 
 class Transcriber(Protocol):
@@ -137,7 +150,17 @@ def relabel_speaker_intervals(intervals: Sequence[Mapping[str, Any]]) -> list[di
 
 
 def merge_tiny_speaker_fragments(intervals: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Merge only short, fragmented labels with a decisive temporal target."""
+    """Merge speaker labels whose total speaking time is a sliver of the meeting.
+
+    Sherpa-onnx's clustering over-splits real speakers into short-lived extra
+    labels far more often than it produces a genuinely brief real speaker, so
+    this merges by total duration alone (regardless of any single turn's
+    length): a speaker under the duration cap gets folded into whichever
+    substantive neighbor talks around them most. An earlier version also
+    required every one of a candidate's turns to be <=3 seconds, which made
+    this nearly a no-op on real conversational audio (turns of 5-60s are
+    normal) and left large over-segmentation uncorrected.
+    """
     ordered = sorted(
         (dict(interval) for interval in intervals),
         key=lambda interval: (float(interval["start"]), float(interval["end"]), str(interval["speaker"])),
@@ -146,19 +169,13 @@ def merge_tiny_speaker_fragments(intervals: Sequence[Mapping[str, Any]]) -> list
         return []
 
     totals: dict[str, float] = defaultdict(float)
-    longest: dict[str, float] = defaultdict(float)
     for interval in ordered:
         speaker = str(interval["speaker"])
         duration = max(0.0, float(interval["end"]) - float(interval["start"]))
         totals[speaker] += duration
-        longest[speaker] = max(longest[speaker], duration)
     total_speech = sum(totals.values())
     candidate_limit = min(FRAGMENT_TOTAL_SECONDS_CAP, total_speech * FRAGMENT_SPEECH_RATIO)
-    candidates = {
-        speaker
-        for speaker, total in totals.items()
-        if total < candidate_limit and longest[speaker] <= FRAGMENT_MAX_TURN_SECONDS
-    }
+    candidates = {speaker for speaker, total in totals.items() if total < candidate_limit}
     substantive = set(totals) - candidates
     if not candidates or not substantive:
         return relabel_speaker_intervals(ordered)
@@ -833,47 +850,118 @@ class SherpaDiarizer:
         if not shutil.which(self.ffmpeg):
             raise ProcessingError("ffmpeg is required for local sherpa-onnx diarization.")
         try:
-            import numpy as np
             from sherpa_onnx import (
                 FastClusteringConfig,
                 OfflineSpeakerDiarization,
                 OfflineSpeakerDiarizationConfig,
                 OfflineSpeakerSegmentationModelConfig,
                 OfflineSpeakerSegmentationPyannoteModelConfig,
+                SpeakerEmbeddingExtractor,
                 SpeakerEmbeddingExtractorConfig,
             )
         except ImportError as error:
             raise ProcessingError("sherpa-onnx and numpy are required for local diarization.") from error
 
         waveform = self.waveform(audio_path)
-
         segmentation = OfflineSpeakerSegmentationModelConfig()
         segmentation.pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
             str(self.config.sherpa_model_directory / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx")
         )
-        embedding = SpeakerEmbeddingExtractorConfig(
+        embedding_config = SpeakerEmbeddingExtractorConfig(
             model=str(self.config.sherpa_model_directory / SHERPA_EMBEDDING_FILENAME),
             num_threads=SHERPA_EMBEDDING_THREADS,
             debug=False,
             provider="cpu",
         )
-        clustering = FastClusteringConfig(num_clusters=int(num_speakers or -1), threshold=0.95)
-        config = OfflineSpeakerDiarizationConfig(
+
+        # NME-SC only replaces the clustering decision when an oracle speaker
+        # count is available (from the user's pre-recording speaker-count
+        # prompt). Its own eigengap-based count *estimate* was validated
+        # against two real recordings (one previously known-hard, one with a
+        # known-good 2-speaker ground truth) and collapsed both to a single
+        # speaker: the single-scale raw-segment affinity graph this pipeline
+        # feeds it is sparser and noisier than the fixed-duration overlapping
+        # multiscale windows NME-SC's g_p heuristic was tuned against in
+        # NeMo, so a larger, fully-connected neighbor count always scores
+        # better than the smaller one that actually splits along speakers.
+        # Auto mode (no count given) keeps the existing AHC pass.
+        if num_speakers is None:
+            clustering = FastClusteringConfig(num_clusters=-1, threshold=0.95)
+            config = OfflineSpeakerDiarizationConfig(
+                segmentation=segmentation,
+                embedding=embedding_config,
+                clustering=clustering,
+                min_duration_on=0.3,
+                min_duration_off=0.5,
+            )
+            if not config.validate():
+                raise ProcessingError("sherpa-onnx configuration validation failed")
+            diarizer = OfflineSpeakerDiarization(config)
+            if diarizer.sample_rate != 16_000:
+                raise ProcessingError("sherpa-onnx sample rate is incompatible with local input")
+            segments = diarizer.process(waveform).sort_by_start_time()
+            return [
+                {"start": float(segment.start), "end": float(segment.end), "speaker": f"SPEAKER_{int(segment.speaker):02d}"}
+                for segment in segments
+            ]
+
+        boundary_config = OfflineSpeakerDiarizationConfig(
             segmentation=segmentation,
-            embedding=embedding,
-            clustering=clustering,
+            embedding=embedding_config,
+            clustering=FastClusteringConfig(num_clusters=-1, threshold=RAW_BOUNDARY_CLUSTERING_THRESHOLD),
             min_duration_on=0.3,
             min_duration_off=0.5,
         )
-        if not config.validate():
+        if not boundary_config.validate():
             raise ProcessingError("sherpa-onnx configuration validation failed")
-        diarizer = OfflineSpeakerDiarization(config)
-        if diarizer.sample_rate != 16_000:
+        boundary_diarizer = OfflineSpeakerDiarization(boundary_config)
+        if boundary_diarizer.sample_rate != 16_000:
             raise ProcessingError("sherpa-onnx sample rate is incompatible with local input")
-        segments = diarizer.process(waveform).sort_by_start_time()
+        raw_segments = boundary_diarizer.process(waveform).sort_by_start_time()
+        intervals = [{"start": float(segment.start), "end": float(segment.end)} for segment in raw_segments]
+        if not intervals:
+            return []
+
+        import numpy as np
+
+        extractor = SpeakerEmbeddingExtractor(embedding_config)
+        vectors: list[Any] = []
+        embedded_indices: list[int] = []
+        for index, interval in enumerate(intervals):
+            start_sample = max(0, int(interval["start"] * 16_000))
+            end_sample = min(len(waveform), int(interval["end"] * 16_000))
+            if end_sample - start_sample < MIN_NMESC_SEGMENT_SAMPLES:
+                continue
+            stream = extractor.create_stream()
+            stream.accept_waveform(16_000, waveform[start_sample:end_sample])
+            stream.input_finished()
+            if not extractor.is_ready(stream):
+                continue
+            vector = np.asarray(extractor.compute(stream), dtype=np.float32).reshape(-1)
+            if vector.size != extractor.dim or not np.all(np.isfinite(vector)):
+                continue
+            vectors.append(vector)
+            embedded_indices.append(index)
+        if not vectors:
+            return []
+
+        labels = cluster_embeddings(
+            np.stack(vectors),
+            max_num_speakers=min(NMESC_MAX_SPEAKERS_CAP, len(vectors)),
+            oracle_num_speakers=num_speakers,
+        )
+        label_by_index: dict[int, int] = dict(zip(embedded_indices, (int(label) for label in labels)))
+        for index in range(len(intervals)):
+            if index in label_by_index:
+                continue
+            neighbor = next((label_by_index[i] for i in range(index - 1, -1, -1) if i in label_by_index), None)
+            if neighbor is None:
+                neighbor = next(label_by_index[i] for i in range(index + 1, len(intervals)) if i in label_by_index)
+            label_by_index[index] = neighbor
+
         return [
-            {"start": float(segment.start), "end": float(segment.end), "speaker": f"SPEAKER_{int(segment.speaker):02d}"}
-            for segment in segments
+            {"start": interval["start"], "end": interval["end"], "speaker": f"SPEAKER_{label_by_index[index]:02d}"}
+            for index, interval in enumerate(intervals)
         ]
 
     def speaker_embeddings(self, audio_path: Path, intervals: Sequence[Mapping[str, Any]]) -> dict[str, list[float]]:

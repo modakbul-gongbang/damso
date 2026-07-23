@@ -319,16 +319,32 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual({item["speaker"] for item in first}, {"SPEAKER_00"})
 
-    def test_fragment_cleanup_preserves_sustained_short_speaker_and_ambiguous_votes(self):
-        sustained = merge_tiny_speaker_fragments(
+    def test_fragment_cleanup_merges_by_total_duration_regardless_of_turn_length(self):
+        # Total duration decides merging, not any single turn's length: real
+        # conversational audio has plenty of over-split speakers whose turns
+        # run well past a few seconds, and a turn-length gate left most of
+        # them uncorrected (a real 49-speaker, 2-person recording only had 8
+        # speakers whose longest turn was <=3s).
+        merged = merge_tiny_speaker_fragments(
             [
                 {"start": 0, "end": 50, "speaker": "A"},
-                {"start": 50, "end": 53.01, "speaker": "B"},
-                {"start": 53.01, "end": 103.01, "speaker": "A"},
+                {"start": 50, "end": 55, "speaker": "B"},  # a single 5s turn
+                {"start": 55, "end": 105, "speaker": "A"},
             ]
         )
-        self.assertEqual(len({item["speaker"] for item in sustained}), 2)
+        self.assertEqual({item["speaker"] for item in merged}, {"SPEAKER_00"})
 
+    def test_fragment_cleanup_preserves_a_minor_speaker_whose_total_clears_the_cap(self):
+        preserved = merge_tiny_speaker_fragments(
+            [
+                {"start": 0, "end": 1000, "speaker": "A"},
+                {"start": 1000, "end": 1070, "speaker": "B"},  # 70s total, above the 60s cap
+                {"start": 1070, "end": 2000, "speaker": "A"},
+            ]
+        )
+        self.assertEqual(len({item["speaker"] for item in preserved}), 2)
+
+    def test_fragment_cleanup_preserves_ambiguous_votes(self):
         ambiguous = merge_tiny_speaker_fragments(
             [
                 {"start": 0, "end": 50, "speaker": "A"},
