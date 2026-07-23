@@ -20,6 +20,7 @@ import tempfile
 import unicodedata
 import uuid
 import wave
+import zipfile
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -67,6 +68,11 @@ SHERPA_EMBEDDING_THREADS = 2
 RAW_BOUNDARY_CLUSTERING_THRESHOLD = 1e-6
 MIN_NMESC_SEGMENT_SAMPLES = int(0.3 * 16_000)
 NMESC_MAX_SPEAKERS_CAP = 20
+
+# Raw segment boundaries and their per-segment voice embeddings, cached so a
+# later "recluster with a different speaker count" is pure numpy instead of a
+# second multi-minute segmentation+embedding pass over the full audio.
+BOUNDARY_CACHE_FILENAME = "diarization-segments.npz"
 
 
 class Transcriber(Protocol):
@@ -840,10 +846,92 @@ class MLXWhisperTranscriber:
             return normalize_mlx_segments(payload)
 
 
+class ReplayTranscriber:
+    """Replays an existing transcript so diarization-only reruns skip Whisper.
+
+    Used by the recluster operation: the meeting's text is already correct,
+    only the speaker assignment changes, so re-transcribing would waste the
+    dominant share of phase-one time for a byte-identical result.
+    """
+
+    def __init__(self, segments: Sequence[Mapping[str, Any]]):
+        self.segments = [
+            {"start": float(segment["start"]), "end": float(segment["end"]), "text": str(segment["text"])}
+            for segment in segments
+        ]
+
+    def transcribe(self, audio_path: Path, hints: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return [dict(segment) for segment in self.segments]
+
+
+def save_boundary_cache(
+    cache_path: Path,
+    audio_size_bytes: int,
+    intervals: Sequence[Mapping[str, Any]],
+    embedded_indices: Sequence[int],
+    vectors: Any,
+) -> None:
+    import numpy as np
+
+    with tempfile.NamedTemporaryFile(suffix=".npz", dir=cache_path.parent, delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        np.savez(
+            temporary_path,
+            starts=np.asarray([interval["start"] for interval in intervals], dtype=np.float64),
+            ends=np.asarray([interval["end"] for interval in intervals], dtype=np.float64),
+            embedded_indices=np.asarray(embedded_indices, dtype=np.int64),
+            embeddings=np.asarray(vectors, dtype=np.float32),
+            embedding_model=np.asarray(SHERPA_EMBEDDING_FILENAME),
+            audio_size_bytes=np.asarray(audio_size_bytes, dtype=np.int64),
+        )
+        os.replace(temporary_path, cache_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def load_boundary_cache(cache_path: Path, audio_size_bytes: int) -> tuple[list[dict[str, Any]], list[int], Any] | None:
+    """Load cached raw-segment boundaries and embeddings, or None if unusable.
+
+    The cache is bound to one exact audio file (by size) and one embedding
+    model; any mismatch or malformed content silently misses so the caller
+    falls back to a fresh extraction pass.
+    """
+    import numpy as np
+
+    if not cache_path.is_file():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=False) as cached:
+            if str(cached["embedding_model"]) != SHERPA_EMBEDDING_FILENAME:
+                return None
+            if int(cached["audio_size_bytes"]) != audio_size_bytes:
+                return None
+            starts = np.asarray(cached["starts"], dtype=np.float64)
+            ends = np.asarray(cached["ends"], dtype=np.float64)
+            embedded_indices = np.asarray(cached["embedded_indices"], dtype=np.int64)
+            vectors = np.asarray(cached["embeddings"], dtype=np.float32)
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return None
+    if starts.shape != ends.shape or starts.ndim != 1:
+        return None
+    if vectors.ndim != 2 or embedded_indices.shape[0] != vectors.shape[0]:
+        return None
+    if embedded_indices.size and (embedded_indices.min() < 0 or embedded_indices.max() >= starts.shape[0]):
+        return None
+    intervals = [{"start": float(start), "end": float(end)} for start, end in zip(starts, ends)]
+    return intervals, [int(index) for index in embedded_indices], vectors
+
+
 class SherpaDiarizer:
     def __init__(self, config: LocalModelConfig, ffmpeg: str = "ffmpeg"):
         self.config = config
         self.ffmpeg = ffmpeg
+        # When set, the oracle-count path caches raw segment boundaries and
+        # per-segment embeddings here, and reuses them on a later call over
+        # the same audio - a count change then reclusters in seconds.
+        self.boundary_cache_path: Path | None = None
 
     def diarize(self, audio_path: Path, num_speakers: int | None) -> list[dict[str, Any]]:
         self.config.validate()
@@ -862,7 +950,6 @@ class SherpaDiarizer:
         except ImportError as error:
             raise ProcessingError("sherpa-onnx and numpy are required for local diarization.") from error
 
-        waveform = self.waveform(audio_path)
         segmentation = OfflineSpeakerSegmentationModelConfig()
         segmentation.pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
             str(self.config.sherpa_model_directory / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx")
@@ -886,6 +973,7 @@ class SherpaDiarizer:
         # better than the smaller one that actually splits along speakers.
         # Auto mode (no count given) keeps the existing AHC pass.
         if num_speakers is None:
+            waveform = self.waveform(audio_path)
             clustering = FastClusteringConfig(num_clusters=-1, threshold=0.95)
             config = OfflineSpeakerDiarizationConfig(
                 segmentation=segmentation,
@@ -905,49 +993,66 @@ class SherpaDiarizer:
                 for segment in segments
             ]
 
-        boundary_config = OfflineSpeakerDiarizationConfig(
-            segmentation=segmentation,
-            embedding=embedding_config,
-            clustering=FastClusteringConfig(num_clusters=-1, threshold=RAW_BOUNDARY_CLUSTERING_THRESHOLD),
-            min_duration_on=0.3,
-            min_duration_off=0.5,
-        )
-        if not boundary_config.validate():
-            raise ProcessingError("sherpa-onnx configuration validation failed")
-        boundary_diarizer = OfflineSpeakerDiarization(boundary_config)
-        if boundary_diarizer.sample_rate != 16_000:
-            raise ProcessingError("sherpa-onnx sample rate is incompatible with local input")
-        raw_segments = boundary_diarizer.process(waveform).sort_by_start_time()
-        intervals = [{"start": float(segment.start), "end": float(segment.end)} for segment in raw_segments]
-        if not intervals:
-            return []
-
         import numpy as np
 
-        extractor = SpeakerEmbeddingExtractor(embedding_config)
-        vectors: list[Any] = []
-        embedded_indices: list[int] = []
-        for index, interval in enumerate(intervals):
-            start_sample = max(0, int(interval["start"] * 16_000))
-            end_sample = min(len(waveform), int(interval["end"] * 16_000))
-            if end_sample - start_sample < MIN_NMESC_SEGMENT_SAMPLES:
-                continue
-            stream = extractor.create_stream()
-            stream.accept_waveform(16_000, waveform[start_sample:end_sample])
-            stream.input_finished()
-            if not extractor.is_ready(stream):
-                continue
-            vector = np.asarray(extractor.compute(stream), dtype=np.float32).reshape(-1)
-            if vector.size != extractor.dim or not np.all(np.isfinite(vector)):
-                continue
-            vectors.append(vector)
-            embedded_indices.append(index)
-        if not vectors:
+        try:
+            audio_size_bytes = audio_path.stat().st_size
+        except OSError as error:
+            raise ProcessingError("audio input could not be inspected for diarization") from error
+        cached = (
+            load_boundary_cache(self.boundary_cache_path, audio_size_bytes)
+            if self.boundary_cache_path is not None
+            else None
+        )
+        if cached is not None:
+            intervals, embedded_indices, embedding_matrix = cached
+        else:
+            waveform = self.waveform(audio_path)
+            boundary_config = OfflineSpeakerDiarizationConfig(
+                segmentation=segmentation,
+                embedding=embedding_config,
+                clustering=FastClusteringConfig(num_clusters=-1, threshold=RAW_BOUNDARY_CLUSTERING_THRESHOLD),
+                min_duration_on=0.3,
+                min_duration_off=0.5,
+            )
+            if not boundary_config.validate():
+                raise ProcessingError("sherpa-onnx configuration validation failed")
+            boundary_diarizer = OfflineSpeakerDiarization(boundary_config)
+            if boundary_diarizer.sample_rate != 16_000:
+                raise ProcessingError("sherpa-onnx sample rate is incompatible with local input")
+            raw_segments = boundary_diarizer.process(waveform).sort_by_start_time()
+            intervals = [{"start": float(segment.start), "end": float(segment.end)} for segment in raw_segments]
+            extractor = SpeakerEmbeddingExtractor(embedding_config)
+            vectors: list[Any] = []
+            embedded_indices = []
+            for index, interval in enumerate(intervals):
+                start_sample = max(0, int(interval["start"] * 16_000))
+                end_sample = min(len(waveform), int(interval["end"] * 16_000))
+                if end_sample - start_sample < MIN_NMESC_SEGMENT_SAMPLES:
+                    continue
+                stream = extractor.create_stream()
+                stream.accept_waveform(16_000, waveform[start_sample:end_sample])
+                stream.input_finished()
+                if not extractor.is_ready(stream):
+                    continue
+                vector = np.asarray(extractor.compute(stream), dtype=np.float32).reshape(-1)
+                if vector.size != extractor.dim or not np.all(np.isfinite(vector)):
+                    continue
+                vectors.append(vector)
+                embedded_indices.append(index)
+            embedding_matrix = np.stack(vectors) if vectors else np.zeros((0, 0), dtype=np.float32)
+            if self.boundary_cache_path is not None and intervals:
+                save_boundary_cache(
+                    self.boundary_cache_path, audio_size_bytes, intervals, embedded_indices, embedding_matrix
+                )
+        if not intervals:
+            return []
+        if not embedding_matrix.shape[0]:
             return []
 
         labels = cluster_embeddings(
-            np.stack(vectors),
-            max_num_speakers=min(NMESC_MAX_SPEAKERS_CAP, len(vectors)),
+            embedding_matrix,
+            max_num_speakers=min(NMESC_MAX_SPEAKERS_CAP, embedding_matrix.shape[0]),
             oracle_num_speakers=num_speakers,
         )
         label_by_index: dict[int, int] = dict(zip(embedded_indices, (int(label) for label in labels)))
@@ -1155,7 +1260,9 @@ def execute_request(request: Mapping[str, Any], environment: Mapping[str, str] |
         )
         source_files = [audio_path, *([system_audio_path] if system_audio_path is not None else [])]
         config = LocalModelConfig.from_environment(environment)
-        pipeline = LocalProcessingPipeline(MLXWhisperTranscriber(config), SherpaDiarizer(config))
+        diarizer = SherpaDiarizer(config)
+        diarizer.boundary_cache_path = recording_directory / BOUNDARY_CACHE_FILENAME
+        pipeline = LocalProcessingPipeline(MLXWhisperTranscriber(config), diarizer)
         transcript = pipeline.run_phase_one(
             recording_directory,
             processing_audio_path,
@@ -1176,6 +1283,72 @@ def execute_request(request: Mapping[str, Any], environment: Mapping[str, str] |
                 "transcript.raw.json",
                 "identification.json",
                 "speaker-embeddings.npz",
+                "phase-one.complete.json",
+                "transcript.md",
+            ],
+        }
+    if operation == "recluster":
+        # Diarization-only rerun with a user-supplied speaker count. The
+        # transcript text is already correct, so Whisper is replayed from
+        # transcript.raw.json and only the speaker assignment changes. With a
+        # boundary cache from a previous oracle run this takes seconds; the
+        # first recluster after an auto run pays one segmentation+embedding
+        # pass and caches it.
+        audio_path = canonical_audio_path(recording_directory, request.get("audio_path"), field_name="audio_path")
+        num_speakers = request.get("num_speakers")
+        if not isinstance(num_speakers, int) or isinstance(num_speakers, bool) or num_speakers < 1:
+            raise ProcessingError("recluster requires a positive num_speakers integer")
+        raw_path = recording_directory / "transcript.raw.json"
+        if not raw_path.is_file():
+            raise ProcessingError("phase one transcript is required before reclustering")
+        try:
+            existing = json.loads(raw_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ProcessingError("transcript.raw.json is unreadable") from error
+        segments = existing.get("segments")
+        if not isinstance(segments, list) or not segments:
+            raise ProcessingError("transcript.raw.json has no segments to replay")
+        hint_path = recording_directory / "hint.json"
+        hints: dict[str, Any] = {}
+        if hint_path.is_file():
+            try:
+                stored_hint = json.loads(hint_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                stored_hint = {}
+            if isinstance(stored_hint, Mapping):
+                hints = dict(stored_hint)
+        hints["num_speakers"] = num_speakers
+        # Keep the original capture provenance: recluster processes the same
+        # (possibly combined) audio, so the rewritten transcript should keep
+        # naming the raw tracks it came from, not the processing mix.
+        stored_sources = existing.get("source_files")
+        source_files = (
+            [recording_directory / str(name) for name in stored_sources]
+            if isinstance(stored_sources, list) and stored_sources
+            else [audio_path]
+        )
+        config = LocalModelConfig.from_environment(environment)
+        diarizer = SherpaDiarizer(config)
+        diarizer.boundary_cache_path = recording_directory / BOUNDARY_CACHE_FILENAME
+        pipeline = LocalProcessingPipeline(ReplayTranscriber(segments), diarizer)
+        transcript = pipeline.run_phase_one(
+            recording_directory,
+            audio_path,
+            hints,
+            source_files=source_files,
+        )
+        return {
+            "ok": True,
+            "operation": operation,
+            "recording_stem": recording_directory.name,
+            "stage": "speaker_review",
+            "speaker_count": len(transcript["speakers"]),
+            "artifact_files": [
+                "hint.json",
+                "transcript.raw.json",
+                "identification.json",
+                "speaker-embeddings.npz",
+                BOUNDARY_CACHE_FILENAME,
                 "phase-one.complete.json",
                 "transcript.md",
             ],

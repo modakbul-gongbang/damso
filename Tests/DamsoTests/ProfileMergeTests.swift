@@ -173,6 +173,7 @@ private final class MergeFakeBackend: LocalProcessingBackend, @unchecked Sendabl
 
     func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
+    func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult { fatalError("unused") }

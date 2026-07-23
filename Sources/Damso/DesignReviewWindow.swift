@@ -32,6 +32,7 @@ struct DesignReviewWindow: View {
     @State private var showOriginalTranscript = false
     @State private var heldImportSpeakerCount = 0
     @State private var heldImportParticipants: [String] = []
+    @State private var reclusterCount = 0
     @State private var meetingSearchText = ""
     @State private var peopleSearchText = ""
     @FocusState private var isMeetingSearchFocused: Bool
@@ -1100,11 +1101,21 @@ struct DesignReviewWindow: View {
                     .font(.headline)
                 Text(Loc.tr("This imported recording is not transcribed yet. Set how many people speak in it for the most reliable speaker separation, or leave it on Auto to skip."))
                     .opacity(0.75)
+                Text(Loc.tr("You can also set the count later, on the speaker review screen."))
+                    .font(.damsoMonoCaption)
+                    .opacity(0.6)
                 SpeakerCountStepper(count: $heldImportSpeakerCount)
                 ParticipantPlanField(
                     participants: $heldImportParticipants,
                     knownPeople: workspace.people.map { $0.name }
                 )
+                .onChange(of: heldImportParticipants) { oldValue, newValue in
+                    heldImportSpeakerCount = SpeakerPlan.prefilledCount(
+                        current: heldImportSpeakerCount,
+                        oldParticipants: oldValue,
+                        newParticipants: newValue
+                    )
+                }
                 HStack {
                     Spacer()
                     Button(Loc.tr("Start transcription"), systemImage: "waveform") {
@@ -1277,6 +1288,9 @@ struct DesignReviewWindow: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
+                if record.stage == .speakerReview, record.resolutions.isEmpty {
+                    reclusterBanner(record)
+                }
                 HStack(alignment: .center, spacing: 8) {
                     Text(Loc.tr("Confirm each speaker, then press Generate summary. You can reassign a speaker here at any time."))
                         .font(.damsoMonoCaption)
@@ -1297,6 +1311,47 @@ struct DesignReviewWindow: View {
         }
         .frame(maxWidth: 760, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// Post-hoc speaker-count correction: re-splits the voices to a
+    /// user-supplied count without re-transcribing. Only offered while no
+    /// speaker has been confirmed yet - new labels would orphan existing
+    /// confirmations - so the whole banner disappears at the first
+    /// confirmation.
+    private func reclusterBanner(_ record: MeetingRecord) -> some View {
+        BlockCard(block: DamsoTokens.blockLilac) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(Loc.tr("Too many speakers detected?"), systemImage: "person.2.badge.gearshape")
+                    .font(.headline)
+                Text(Loc.tr("Set how many people actually spoke and the voices are re-split to exactly that count. Usually done in seconds; the first re-split of an older meeting can take a few minutes."))
+                    .font(.damsoMonoCaption)
+                    .opacity(0.75)
+                HStack(spacing: 14) {
+                    SpeakerCountStepper(count: $reclusterCount)
+                        .frame(maxWidth: 260)
+                    Spacer()
+                    Button {
+                        Task { await workspace.reclusterSpeakers(count: reclusterCount) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if workspace.isReclustering {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(workspace.isReclustering ? Loc.tr("Re-splitting...") : Loc.tr("Re-split speakers"))
+                        }
+                    }
+                    .buttonStyle(DamsoPillButtonStyle())
+                    .disabled(reclusterCount < 1 || workspace.isReclustering)
+                    .accessibilityIdentifier("damso.recluster-speakers")
+                }
+            }
+        }
+        .onAppear {
+            if reclusterCount == 0 {
+                reclusterCount = record.hints.numSpeakers ?? 2
+            }
+        }
     }
 
     /// Subtitle for the one speaker-confirmation banner, folding in the voice

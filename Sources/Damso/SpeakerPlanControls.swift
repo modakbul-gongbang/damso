@@ -5,6 +5,26 @@ import SwiftUI
 /// real meetings this tool records sit well under 20.
 private let maxPlannedSpeakers = 20
 
+enum SpeakerPlan {
+    /// The speaker count implied by a participant-name plan: the named people
+    /// plus the recording user, since users list the *other* attendees (their
+    /// own resolved speakers consistently read "나(...)" alongside the named
+    /// participants). An empty plan implies Auto (0).
+    static func derivedCount(forParticipants participants: [String]) -> Int {
+        participants.isEmpty ? 0 : min(participants.count + 1, maxPlannedSpeakers)
+    }
+
+    /// Prefill-not-force: the stepper follows the participant list only while
+    /// the user has not diverged from it - it still reads Auto, or still holds
+    /// the value derived from the previous list. A hand-adjusted count is
+    /// never overwritten.
+    static func prefilledCount(current: Int, oldParticipants: [String], newParticipants: [String]) -> Int {
+        let previous = derivedCount(forParticipants: oldParticipants)
+        guard current == 0 || current == previous else { return current }
+        return derivedCount(forParticipants: newParticipants)
+    }
+}
+
 /// Compact "expected speakers" stepper shown next to the Record button on both
 /// the main window and the menu-bar card. A count of 0 reads as "Auto" and
 /// leaves diarization to estimate the number; a positive value pins it.

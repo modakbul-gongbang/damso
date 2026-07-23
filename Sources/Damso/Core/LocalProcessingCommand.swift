@@ -77,6 +77,20 @@ struct LocalProcessingResult: Decodable, Equatable, Sendable {
     }
 }
 
+struct LocalReclusterRequest: Encodable, Sendable {
+    let operation = "recluster"
+    let recordingDirectory: String
+    let audioPath: String
+    let numSpeakers: Int
+
+    enum CodingKeys: String, CodingKey {
+        case operation
+        case recordingDirectory = "recording_directory"
+        case audioPath = "audio_path"
+        case numSpeakers = "num_speakers"
+    }
+}
+
 struct LocalSpeakerResolution: Encodable, Sendable {
     let action: String
     let name: String?
@@ -189,6 +203,10 @@ enum LocalProcessingProcessRunner {
     }
 
     static func applyResolutions(_ request: LocalResolutionProcessingRequest, command: LocalProcessingCommand = .init()) throws -> LocalProcessingResult {
+        try run(request, command: command)
+    }
+
+    static func recluster(_ request: LocalReclusterRequest, command: LocalProcessingCommand = .init()) throws -> LocalProcessingResult {
         try run(request, command: command)
     }
 

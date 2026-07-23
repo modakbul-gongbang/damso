@@ -1311,5 +1311,94 @@ class NoiseSegmentTests(unittest.TestCase):
         self.assertEqual(segments[0]["start"], 2141.06)
         self.assertEqual(segments[0]["end"], 2141.06)
 
+
+class BoundaryCacheTests(unittest.TestCase):
+    def test_round_trips_intervals_indices_and_embeddings(self):
+        import numpy as np
+
+        from damso.processing import load_boundary_cache, save_boundary_cache
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cache_path = Path(temporary) / "diarization-segments.npz"
+            intervals = [{"start": 0.0, "end": 1.5}, {"start": 1.5, "end": 2.0}, {"start": 2.0, "end": 4.0}]
+            vectors = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+            save_boundary_cache(cache_path, 12_345, intervals, [0, 2], vectors)
+
+            loaded = load_boundary_cache(cache_path, 12_345)
+            self.assertIsNotNone(loaded)
+            loaded_intervals, loaded_indices, loaded_vectors = loaded
+            self.assertEqual(loaded_intervals, intervals)
+            self.assertEqual(loaded_indices, [0, 2])
+            self.assertTrue(np.array_equal(loaded_vectors, vectors))
+
+    def test_misses_on_wrong_audio_size_missing_file_and_corrupt_content(self):
+        import numpy as np
+
+        from damso.processing import load_boundary_cache, save_boundary_cache
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cache_path = Path(temporary) / "diarization-segments.npz"
+            self.assertIsNone(load_boundary_cache(cache_path, 1))
+
+            vectors = np.asarray([[1.0, 0.0]], dtype=np.float32)
+            save_boundary_cache(cache_path, 12_345, [{"start": 0.0, "end": 1.0}], [0], vectors)
+            self.assertIsNone(load_boundary_cache(cache_path, 99_999))
+
+            cache_path.write_bytes(b"not an npz archive")
+            self.assertIsNone(load_boundary_cache(cache_path, 12_345))
+
+    def test_misses_when_indices_point_outside_the_interval_list(self):
+        import numpy as np
+
+        from damso.processing import load_boundary_cache, save_boundary_cache
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cache_path = Path(temporary) / "diarization-segments.npz"
+            vectors = np.asarray([[1.0, 0.0]], dtype=np.float32)
+            save_boundary_cache(cache_path, 12_345, [{"start": 0.0, "end": 1.0}], [7], vectors)
+            self.assertIsNone(load_boundary_cache(cache_path, 12_345))
+
+
+class ReplayTranscriberTests(unittest.TestCase):
+    def test_replays_start_end_text_and_ignores_extra_fields(self):
+        from damso.processing import ReplayTranscriber
+
+        transcriber = ReplayTranscriber([
+            {"start": 0, "end": 2, "text": "first", "speaker": "SPEAKER_03"},
+            {"start": 2.5, "end": 4, "text": "second"},
+        ])
+        segments = transcriber.transcribe(Path("unused"), {})
+        self.assertEqual(segments, [
+            {"start": 0.0, "end": 2.0, "text": "first"},
+            {"start": 2.5, "end": 4.0, "text": "second"},
+        ])
+        # Each call returns fresh copies so a caller mutating one result
+        # cannot corrupt a later replay.
+        segments[0]["text"] = "mutated"
+        self.assertEqual(transcriber.transcribe(Path("unused"), {})[0]["text"], "first")
+
+    def test_recluster_replays_transcript_through_phase_one(self):
+        from damso.processing import ReplayTranscriber
+
+        with tempfile.TemporaryDirectory() as temporary:
+            record = Path(temporary) / "Plaud" / "recordings" / "fixture"
+            record.mkdir(parents=True)
+            audio = record / "microphone.caf"
+            audio.write_bytes(b"synthetic")
+            replay = ReplayTranscriber([
+                {"start": 0, "end": 2, "text": "first", "speaker": "SPEAKER_05"},
+                {"start": 4.5, "end": 6.0, "text": "second", "speaker": "SPEAKER_09"},
+            ])
+            pipeline = LocalProcessingPipeline(replay, FakeDiarizerWithEmbeddings())
+            transcript = pipeline.run_phase_one(record, audio, {"num_speakers": 2})
+
+            self.assertEqual(transcript["speakers"], ["SPEAKER_00", "SPEAKER_01"])
+            self.assertEqual([segment["text"] for segment in transcript["segments"]], ["first", "second"])
+            written = json.loads((record / "transcript.raw.json").read_text(encoding="utf-8"))
+            self.assertEqual(written["speakers"], ["SPEAKER_00", "SPEAKER_01"])
+            hint = json.loads((record / "hint.json").read_text(encoding="utf-8"))
+            self.assertEqual(hint["num_speakers"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

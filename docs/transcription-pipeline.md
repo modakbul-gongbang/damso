@@ -136,14 +136,45 @@ multiscale windows (hundreds of redundant points per speaker); this pipeline
 feeds it sparse raw VAD-based segments (roughly 60 segments per speaker for a
 5-minute 2-speaker clip), and at that density a larger, fully-connected
 neighbor graph always scores better than the smaller disconnected one that
-actually reveals two speakers. Revisiting auto-K would need NeMo's multiscale
-windowing or a more robust component-count estimator; not attempted.
+actually reveals two speakers.
+
+A second auto-K estimator was then built and also rejected:
+`estimate_speaker_count_via_component_plateau` (still in `nme_sc.py`, wired
+only to the no-oracle path production never takes) reads K off the number of
+connected components as the top-p neighbor graph grows. It fixes `g_p`'s
+larger-p-always-wins failure and recovers K exactly on synthetic clusters,
+but on the real, clean 2-speaker recording the "correct" K=2 split it found
+was 117 segments (91.5s) versus 4 segments (1.7s) - the right number for the
+wrong reason, a noise cluster posing as a second speaker. Synthetic
+single-cluster data shows the same failure from finite-sample neighbor
+clumping alone (an 8/6/6 three-way split of one Gaussian blob), so no size
+filter can separate real splits from noise splits. The signal is genuinely
+not in these graphs; auto-K needs either NeMo's multiscale windowing or a
+better embedding model, not another estimator.
 
 The oracle path costs roughly double the original single-pass diarization: a
 near-zero-threshold pass for raw boundaries, then a second full
 embedding-extraction pass over every raw segment before NME-SC re-clusters
 them. Measured on the full 102-minute 11:34 recording: 1160s versus the
 roughly 625s a single AHC pass takes at that length.
+
+## Reclustering with a corrected speaker count is cheap after the first run
+
+The oracle path caches its raw segment boundaries and per-segment embeddings
+to `diarization-segments.npz` in the record directory (bound to the audio
+file size and embedding model; any mismatch silently misses). The
+`recluster` operation replays the existing transcript text through
+`ReplayTranscriber` - no Whisper - and re-runs only the speaker split with a
+user-supplied count. Measured on a 3-minute clip: 29.9s cold (auto-processed
+records have no cache; the pass that builds it is the cost), 0.4s on cache
+hit. This backs the speaker-review "re-split speakers" banner, which is only
+offered before any speaker is confirmed, because new labels orphan existing
+confirmations.
+
+A requested count is an upper bound on what surfaces: NME-SC always produces
+that many clusters, but a cluster that never wins a transcript segment
+during overlap assignment does not appear in `transcript.raw.json`, so
+requesting 3 on a 2-speaker clip can still legitimately yield 2 speakers.
 
 ## Measured dead ends
 

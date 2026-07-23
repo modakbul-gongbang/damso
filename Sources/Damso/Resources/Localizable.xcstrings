@@ -4209,6 +4209,38 @@
         }
       }
     },
+    "Re-split speakers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-split speakers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 다시 나누기"
+          }
+        }
+      }
+    },
+    "Re-splitting...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-splitting..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 나누는 중..."
+          }
+        }
+      }
+    },
     "Ready to capture": {
       "localizations": {
         "en": {
@@ -4813,6 +4845,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "서비스 연결 불가 · 자동 재시도"
+          }
+        }
+      }
+    },
+    "Set how many people actually spoke and the voices are re-split to exactly that count. Usually done in seconds; the first re-split of an older meeting can take a few minutes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set how many people actually spoke and the voices are re-split to exactly that count. Usually done in seconds; the first re-split of an older meeting can take a few minutes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실제로 말한 인원을 지정하면 그 수에 맞춰 화자를 다시 나눕니다. 보통 몇 초면 끝나지만, 이전 미팅을 처음 다시 나눌 때는 몇 분 걸릴 수 있어요."
           }
         }
       }
@@ -5969,6 +6017,22 @@
         }
       }
     },
+    "The re-split speakers could not be loaded. Reopen this meeting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The re-split speakers could not be loaded. Reopen this meeting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 나눈 화자 결과를 불러오지 못했습니다. 이 미팅을 다시 열어주세요."
+          }
+        }
+      }
+    },
     "The recording is safe. Local processing will start when the queue is ready.": {
       "localizations": {
         "en": {
@@ -6077,6 +6141,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "로그인이 만료되었습니다. 다시 연결하면 동기화가 재개됩니다."
+          }
+        }
+      }
+    },
+    "The speakers were not re-split. The current review is unchanged; retry after checking local processing diagnostics.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The speakers were not re-split. The current review is unchanged; retry after checking local processing diagnostics."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 다시 나누기가 실행되지 않았습니다. 현재 검토 내용은 그대로이니, 로컬 처리 진단을 확인한 뒤 다시 시도하세요."
           }
         }
       }
@@ -6237,6 +6317,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "제목"
+          }
+        }
+      }
+    },
+    "Too many speakers detected?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many speakers detected?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자가 실제보다 많이 잡혔나요?"
           }
         }
       }
@@ -6685,6 +6781,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Whisper large-v3-turbo가 오디오를 전사하고 Sherpa가 화자를 분리합니다 (모두 이 Mac에서). 설치 중 미팅 오디오·전사·Plaud 세션·자격증명은 업로드되지 않습니다."
+          }
+        }
+      }
+    },
+    "You can also set the count later, on the speaker review screen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can also set the count later, on the speaker review screen."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자 수는 나중에 화자 확인 단계에서도 정할 수 있어요."
           }
         }
       }

@@ -255,3 +255,69 @@ class ProcessingCLITests(unittest.TestCase):
             env=environment,
             check=False,
         )
+
+
+class ReclusterOperationTests(unittest.TestCase):
+    def _record_with_transcript(self, root: Path) -> Path:
+        record = root / "Plaud" / "recordings" / "fixture"
+        record.mkdir(parents=True)
+        (record / "microphone.caf").write_bytes(b"synthetic")
+        (record / "transcript.raw.json").write_text(json.dumps({
+            "segments": [
+                {"start": 0, "end": 2, "text": "first", "speaker": "SPEAKER_00"},
+                {"start": 2, "end": 4, "text": "second", "speaker": "SPEAKER_07"},
+            ],
+        }), encoding="utf-8")
+        return record
+
+    def test_requires_a_positive_integer_speaker_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            record = self._record_with_transcript(Path(temporary))
+            base = {
+                "operation": "recluster",
+                "recording_directory": str(record),
+                "audio_path": str(record / "microphone.caf"),
+            }
+            for bad in (None, 0, -1, 2.5, "2", True):
+                with self.assertRaises(ProcessingError):
+                    execute_request({**base, "num_speakers": bad}, environment={})
+
+    def test_requires_an_existing_phase_one_transcript(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            record = Path(temporary) / "Plaud" / "recordings" / "fixture"
+            record.mkdir(parents=True)
+            (record / "microphone.caf").write_bytes(b"synthetic")
+            with self.assertRaises(ProcessingError):
+                execute_request({
+                    "operation": "recluster",
+                    "recording_directory": str(record),
+                    "audio_path": str(record / "microphone.caf"),
+                    "num_speakers": 2,
+                }, environment={})
+
+    def test_replays_the_stored_transcript_and_overrides_the_speaker_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            record = self._record_with_transcript(Path(temporary))
+            (record / "hint.json").write_text(json.dumps({
+                "participants": ["다예"],
+                "topic": None,
+                "domain_terms": [],
+                "num_speakers": None,
+            }), encoding="utf-8")
+            with patch.object(
+                LocalProcessingPipeline,
+                "run_phase_one",
+                return_value={"speakers": ["SPEAKER_00", "SPEAKER_01"]},
+            ) as run_phase_one:
+                response = execute_request({
+                    "operation": "recluster",
+                    "recording_directory": str(record),
+                    "audio_path": str(record / "microphone.caf"),
+                    "num_speakers": 2,
+                }, environment={})
+
+            self.assertEqual(response["stage"], "speaker_review")
+            self.assertEqual(response["speaker_count"], 2)
+            hints = run_phase_one.call_args.args[2]
+            self.assertEqual(hints["num_speakers"], 2)
+            self.assertEqual(hints["participants"], ["다예"])

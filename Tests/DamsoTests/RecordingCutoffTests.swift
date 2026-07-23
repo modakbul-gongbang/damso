@@ -118,6 +118,7 @@ private final class CutoffFakeBackend: LocalProcessingBackend, @unchecked Sendab
     }
 
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
+    func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult { fatalError("unused") }

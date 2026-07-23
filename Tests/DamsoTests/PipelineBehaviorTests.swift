@@ -69,6 +69,15 @@ private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
         LocalProcessingResult(ok: true, stage: "ready_for_summary", speakerCount: request.resolutions.count)
     }
 
+    var reclusterRequests: [LocalReclusterRequest] = []
+
+    func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult {
+        lock.lock()
+        defer { lock.unlock() }
+        reclusterRequests.append(request)
+        return LocalProcessingResult(ok: true, stage: "speaker_review", speakerCount: request.numSpeakers)
+    }
+
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult {
         lock.lock()
         defer { lock.unlock() }
@@ -737,4 +746,63 @@ func localizationCatalogServesKoreanByDefaultAndEnglishWhenSelected() {
     #expect(Loc.tr("Record now", language: .korean) == "지금 녹음")
     #expect(Loc.tr("Record now", language: .english) == "Record now")
     #expect(Loc.tr("Speakers", language: .korean) == "화자")
+}
+
+@Test
+func speakerCountPrefillsFromParticipantNamesUntilHandAdjusted() {
+    // Adding names while the stepper reads Auto derives names + the user.
+    #expect(SpeakerPlan.prefilledCount(current: 0, oldParticipants: [], newParticipants: ["다예"]) == 2)
+    #expect(SpeakerPlan.prefilledCount(current: 2, oldParticipants: ["다예"], newParticipants: ["다예", "주은"]) == 3)
+    // Removing every name returns the stepper to Auto.
+    #expect(SpeakerPlan.prefilledCount(current: 2, oldParticipants: ["다예"], newParticipants: []) == 0)
+    // A hand-adjusted count is never overwritten by later name edits.
+    #expect(SpeakerPlan.prefilledCount(current: 5, oldParticipants: ["다예"], newParticipants: ["다예", "주은"]) == 5)
+}
+
+@Test @MainActor
+func plannedParticipantEditsPrefillThePlannedSpeakerCount() {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("damso-prefill-\(UUID().uuidString)")
+    let controller = MeetingWorkspaceController(
+        store: MeetingStore(root: root, minimumFreeBytes: 0),
+        capture: NoopCapture(),
+        backend: FakeBackend()
+    )
+    controller.plannedParticipants = ["다예"]
+    #expect(controller.plannedSpeakerCount == 2)
+    controller.plannedParticipants = ["다예", "주은"]
+    #expect(controller.plannedSpeakerCount == 3)
+    controller.plannedSpeakerCount = 5
+    controller.plannedParticipants = ["다예"]
+    #expect(controller.plannedSpeakerCount == 5)
+}
+
+@Test @MainActor
+func reclusterReplaysTheProcessingAudioAndRefusesOnceConfirmationStarted() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var record = try store.load(stem: "pipeline-fixture")
+    record.originalAudioFile = "microphone.caf"
+    try store.update(record)
+    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: record.stem)
+    try Data("synthetic".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
+    controller.refreshLibrary()
+    controller.select(stem: record.stem)
+
+    await controller.reclusterSpeakers(count: 2)
+
+    #expect(backend.reclusterRequests.count == 1)
+    #expect(backend.reclusterRequests.first?.numSpeakers == 2)
+    #expect(URL(fileURLWithPath: backend.reclusterRequests.first?.audioPath ?? "").lastPathComponent == "microphone.caf")
+    let updated = try store.load(stem: record.stem)
+    #expect(updated.hints.numSpeakers == 2)
+
+    // Once any speaker is confirmed, re-splitting would orphan that
+    // confirmation, so the action becomes a no-op.
+    var confirmed = try store.load(stem: record.stem)
+    confirmed.resolutions = [SpeakerResolution(speaker: "SPEAKER_00", action: .skip, personName: nil, alias: nil)]
+    try store.update(confirmed)
+    controller.refreshLibrary()
+    controller.select(stem: record.stem)
+    await controller.reclusterSpeakers(count: 3)
+    #expect(backend.reclusterRequests.count == 1)
 }

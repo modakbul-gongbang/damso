@@ -43,6 +43,7 @@ private struct PhaseOneTranscriptProvenance: Decodable {
 /// spawning processes.
 protocol LocalProcessingBackend: Sendable {
     func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult
+    func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult
@@ -57,6 +58,10 @@ protocol LocalProcessingBackend: Sendable {
 struct SystemProcessingBackend: LocalProcessingBackend {
     func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
         try LocalProcessingProcessRunner.runPhaseOne(request)
+    }
+
+    func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult {
+        try LocalProcessingProcessRunner.recluster(request)
     }
 
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult {
@@ -110,6 +115,7 @@ final class MeetingWorkspaceController: ObservableObject {
     @Published private(set) var selectedRecord: MeetingRecord?
     @Published private(set) var processingArtifacts = MeetingProcessingArtifacts.empty
     @Published private(set) var isApplyingSpeakerResolution = false
+    @Published private(set) var isReclustering = false
     @Published private(set) var isRequestingSummary = false
     @Published private(set) var speakerSuggestions: [String: [SpeakerSuggestion]] = [:]
     @Published private(set) var isSuggestingSpeakers = false
@@ -120,7 +126,15 @@ final class MeetingWorkspaceController: ObservableObject {
     /// stop over-segmentation on low-quality audio. Consumed and reset by
     /// `startNow()`.
     @Published var plannedSpeakerCount: Int = 0
-    @Published var plannedParticipants: [String] = []
+    @Published var plannedParticipants: [String] = [] {
+        didSet {
+            plannedSpeakerCount = SpeakerPlan.prefilledCount(
+                current: plannedSpeakerCount,
+                oldParticipants: oldValue,
+                newParticipants: plannedParticipants
+            )
+        }
+    }
 
     private let store: MeetingStore
     private let capture: any RecordingCapture
@@ -853,6 +867,55 @@ final class MeetingWorkspaceController: ObservableObject {
             finishProcessing(record, request: request, response: response)
         case .failure(let error):
             failProcessing(record, error: error)
+        }
+    }
+
+    /// Diarization-only rerun with a user-supplied speaker count, offered on
+    /// the speaker-review screen while no speaker has been confirmed yet.
+    /// The transcript text is replayed unchanged; only the speaker split is
+    /// redone (NME-SC pinned to the given count). Confirmed reviews are never
+    /// re-split - the entry point disappears once naming starts, because new
+    /// labels would orphan every existing confirmation.
+    func reclusterSpeakers(count: Int) async {
+        guard count >= 1, !isReclustering,
+              var record = selectedRecord,
+              record.stage == .speakerReview,
+              record.resolutions.isEmpty,
+              let audioURL = sourceAudioURL(for: record) else { return }
+        let request = LocalReclusterRequest(
+            recordingDirectory: recordDirectory(for: record).path,
+            audioPath: audioURL.path,
+            numSpeakers: count
+        )
+        isReclustering = true
+        let result = await Task.detached(priority: .utility) { [backend] in
+            Result { try backend.recluster(request) }
+        }.value
+        isReclustering = false
+        switch result {
+        case .success:
+            // Every artifact keyed by the old speaker labels is stale now.
+            refreshedCandidateStems.remove(record.stem)
+            suggestedStems.remove(record.stem)
+            speakerSuggestions = [:]
+            record.hints.numSpeakers = count
+            record.lastErrorCode = nil
+            do {
+                try store.update(record)
+                activeRecord = record.stem == activeRecord?.stem ? record : activeRecord
+                replace(record)
+                // Re-enter through the normal selection path so candidate
+                // refresh and speaker suggestions re-run for the new labels.
+                select(record)
+                recoveryAction = nil
+                scheduleIndexRebuild()
+            } catch {
+                state = .failed("recluster_save_failed")
+                recoveryAction = Loc.tr("The re-split speakers could not be loaded. Reopen this meeting.")
+            }
+        case .failure:
+            state = .failed("recluster_failed")
+            recoveryAction = Loc.tr("The speakers were not re-split. The current review is unchanged; retry after checking local processing diagnostics.")
         }
     }
 
