@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from damso.agent_boundary import (
+    MAX_TRANSCRIPT_PROMPT_BYTES,
+    MAX_TRANSCRIPT_SEGMENTS,
     SUMMARY_SCHEMA,
     CLIExecution,
     ClaudeBoundary,
@@ -16,6 +18,7 @@ from damso.agent_boundary import (
     extract_json_object,
     make_boundary,
     normalize_summary,
+    summary_segment_chunks,
     valid_meeting_date,
 )
 
@@ -114,13 +117,38 @@ class SharedContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_boundary("gemini", Path("/tmp"))
 
-    def test_oversized_transcript_is_bounded_before_cli_launch(self):
+    def test_oversized_transcript_is_summarized_in_bounded_chunks(self):
         boundary = claude()
+        # 513 * 8000 chars is far past the single-pass byte cap, so the summary
+        # falls back to chunked summarization plus a final merge instead of
+        # failing.
         oversized = {"segments": [{"speaker": "A", "text": "x" * 8_000} for _ in range(513)]}
-        with patch.object(boundary, "_execute") as execute:
+        complete = CLIExecution(0, json.dumps({"result": json.dumps(ACCEPTED)}), "")
+        with patch.object(boundary, "_execute", return_value=complete) as execute:
             result = boundary.run_summary(oversized, language="ko")
+        self.assertEqual(result.status, "complete")
+        self.assertEqual(result.summary, NORMALIZED)
+        # One request per chunk plus a final merge -> strictly more than one.
+        self.assertGreater(execute.call_count, 1)
+
+    def test_malformed_transcript_still_fails_with_invalid_transcript(self):
+        boundary = claude()
+        malformed = {"segments": [{"speaker": "A"}]}  # missing text
+        with patch.object(boundary, "_execute") as execute:
+            result = boundary.run_summary(malformed, language="ko")
         self.assertEqual(result.error_code, "invalid_transcript")
         execute.assert_not_called()
+
+    def test_summary_segment_chunks_stay_within_single_pass_caps(self):
+        segments = [{"speaker": "A", "text": "x" * 8_000} for _ in range(513)]
+        chunks = summary_segment_chunks(segments)
+        self.assertGreater(len(chunks), 1)
+        # Order and completeness are preserved across the split.
+        self.assertEqual(sum(len(chunk) for chunk in chunks), len(segments))
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), MAX_TRANSCRIPT_SEGMENTS)
+            data = json.dumps({"segments": chunk}, ensure_ascii=False)
+            self.assertLessEqual(len(data.encode("utf-8")), MAX_TRANSCRIPT_PROMPT_BYTES)
 
 
 class ClaudeBoundaryTests(unittest.TestCase):
