@@ -6,7 +6,9 @@ from damso.nme_sc import (
     build_affinity_graph,
     cluster_embeddings,
     cosine_affinity_matrix,
+    count_components,
     eigengap_estimate,
+    estimate_speaker_count_via_component_plateau,
     is_fully_connected,
     kmeans,
 )
@@ -80,6 +82,43 @@ class EigengapEstimateTests(unittest.TestCase):
         self.assertEqual(estimated_k, len(sizes))
         self.assertEqual(eigenvalues.shape[0], n)
         self.assertEqual(gaps.shape[0], n - 1)
+
+
+class ComponentPlateauEstimateTests(unittest.TestCase):
+    def test_count_components_matches_disconnected_blocks(self):
+        graph = np.zeros((6, 6))
+        graph[0, 1] = graph[1, 0] = 1.0
+        graph[2, 3] = graph[3, 2] = 1.0
+        # node 4 and node 5 stay isolated singleton components
+        self.assertEqual(count_components(graph), 4)
+
+    def test_recovers_known_speaker_count_from_well_separated_embeddings(self):
+        embeddings, _ = make_synthetic_speaker_embeddings([15, 12, 18], noise=0.03, seed=3)
+        cos_affinity = cosine_affinity_matrix(embeddings)
+        _, estimated_k = estimate_speaker_count_via_component_plateau(cos_affinity, max_num_speakers=10)
+        self.assertEqual(estimated_k, 3)
+
+    def test_a_single_true_cluster_can_still_read_as_multiple_speakers(self):
+        # Known, accepted limitation, not a guarantee: a genuinely single
+        # Gaussian blob can show a real-looking, evenly-sized split at low p
+        # from finite-sample nearest-neighbor clumping alone (observed: 3
+        # components of size 8/6/6 out of 20 points at p=2, not singleton
+        # noise a size filter could catch). Distinguishing that from a real
+        # multi-speaker split would need a significance test against a null
+        # distribution, not attempted. This test documents the failure mode
+        # rather than asserting a fix.
+        embeddings, _ = make_synthetic_speaker_embeddings([20], noise=0.03, seed=6)
+        cos_affinity = cosine_affinity_matrix(embeddings)
+        _, estimated_k = estimate_speaker_count_via_component_plateau(cos_affinity, max_num_speakers=10)
+        self.assertGreaterEqual(estimated_k, 1)
+
+    def test_prefers_the_widest_surviving_plateau_over_a_transient_count(self):
+        # Four well-separated clusters: the true K=4 plateau should win over
+        # whatever transient component count appears at the sparsest p.
+        embeddings, _ = make_synthetic_speaker_embeddings([10, 10, 10, 10], noise=0.03, seed=7)
+        cos_affinity = cosine_affinity_matrix(embeddings)
+        _, estimated_k = estimate_speaker_count_via_component_plateau(cos_affinity, max_num_speakers=10)
+        self.assertEqual(estimated_k, 4)
 
 
 class KMeansTests(unittest.TestCase):

@@ -23,6 +23,8 @@ restart instead, which is well-defined regardless of label permutation.
 
 from __future__ import annotations
 
+from itertools import groupby
+
 import numpy as np
 
 EPS = 1e-10
@@ -66,23 +68,30 @@ def laplacian(affinity_graph: np.ndarray) -> np.ndarray:
     return np.diag(degree) - graph
 
 
-def is_fully_connected(affinity_graph: np.ndarray) -> bool:
+def count_components(affinity_graph: np.ndarray) -> int:
     n = affinity_graph.shape[0]
     if n <= 1:
-        return True
+        return n
     adjacency = affinity_graph > 0
     visited = np.zeros(n, dtype=bool)
-    stack = [0]
-    visited[0] = True
-    count = 1
-    while stack:
-        node = stack.pop()
-        neighbors = np.nonzero(adjacency[node] & ~visited)[0]
-        if neighbors.size:
-            visited[neighbors] = True
-            count += neighbors.size
-            stack.extend(neighbors.tolist())
-    return count == n
+    components = 0
+    for start in range(n):
+        if visited[start]:
+            continue
+        components += 1
+        stack = [start]
+        visited[start] = True
+        while stack:
+            node = stack.pop()
+            neighbors = np.nonzero(adjacency[node] & ~visited)[0]
+            if neighbors.size:
+                visited[neighbors] = True
+                stack.extend(neighbors.tolist())
+    return components
+
+
+def is_fully_connected(affinity_graph: np.ndarray) -> bool:
+    return count_components(affinity_graph) <= 1
 
 
 def eigengap_estimate(affinity_graph: np.ndarray, max_num_speakers: int) -> tuple[int, np.ndarray, np.ndarray]:
@@ -147,6 +156,53 @@ def estimate_speaker_count_and_p(
                 break
 
     return final_p, k_by_p[final_p]
+
+
+def estimate_speaker_count_via_component_plateau(
+    cos_affinity: np.ndarray,
+    max_num_speakers: int,
+    max_p_sweep: int = 50,
+) -> tuple[int, int]:
+    """Estimate (p, K) from how long a component count survives as p grows.
+
+    `g_p` (`estimate_speaker_count_and_p`) always favors a larger, already
+    fully-connected p on this pipeline's sparse raw-segment graphs, so it
+    never reads off a K greater than 1 in practice; see
+    docs/transcription-pipeline.md. As p grows from 1, the top-p neighbor
+    graph only ever gains edges, so its component count is non-increasing -
+    a staircase from N singleton-ish components down to 1. The true speaker
+    count is read off as the count that survives the *widest run* of p
+    values before the next merge, not the count with the biggest single
+    drop into it (real recordings can pass through the true count for a
+    single p with no plateau at all, so both signals matter: ties in run
+    length are broken toward the smaller count, which is what a knife-edge
+    single-p occurrence of the true count looks like).
+
+    Known limitation, not fixed here: at small N, a genuinely single speaker
+    can still show a real-looking, evenly-sized split at low p from
+    finite-sample nearest-neighbor clumping alone - not singleton noise a
+    size filter could catch. Telling that apart from a real multi-speaker
+    split would need a significance test against a null distribution.
+    """
+    n = cos_affinity.shape[0]
+    counts: list[tuple[int, int]] = []
+    for p in range(1, min(n, max_p_sweep + 1)):
+        k = count_components(build_affinity_graph(cos_affinity, p))
+        counts.append((p, k))
+        if k == 1:
+            break
+
+    runs: list[tuple[int, int, int]] = []  # (k, p_end, length)
+    for k, group in groupby(counts, key=lambda item: item[1]):
+        group_list = list(group)
+        runs.append((k, group_list[-1][0], len(group_list)))
+
+    candidates = [(k, p_end, length) for k, p_end, length in runs if 1 < k <= max_num_speakers]
+    if not candidates:
+        return counts[-1][0], 1
+    _, best_p, _ = max(candidates, key=lambda run: (run[2], -run[0]))
+    best_k = next(k for k, p_end, _ in runs if p_end == best_p)
+    return best_p, best_k
 
 
 def spectral_embedding(affinity_graph: np.ndarray, num_speakers: int) -> np.ndarray:
@@ -220,17 +276,25 @@ def cluster_embeddings(
 ) -> np.ndarray:
     """Cluster segment embeddings into speaker labels via NME-SC.
 
-    If `oracle_num_speakers` is given, it overrides the estimated speaker
-    count for the final k-means step, but the eigengap search still runs (at
-    that count as its cap) to pick the neighbor-graph density p.
+    With `oracle_num_speakers`, p is chosen by `estimate_speaker_count_and_p`
+    (g_p) exactly as validated end to end on real recordings, and the
+    estimated K it also returns is discarded in favor of the oracle count.
+    Without it, both p and K come from
+    `estimate_speaker_count_via_component_plateau` instead - g_p reliably
+    picks a p corresponding to K=1 on this pipeline's sparse raw-segment
+    graphs, so it is not a usable K estimator on its own.
     """
     n = embeddings.shape[0]
     if n <= 1:
         return np.zeros(n, dtype=int)
-    effective_cap = max(2, min(oracle_num_speakers or max_num_speakers, n - 1))
     cos_affinity = cosine_affinity_matrix(embeddings)
-    p_star, estimated_k = estimate_speaker_count_and_p(cos_affinity, effective_cap)
-    num_speakers = oracle_num_speakers if oracle_num_speakers else estimated_k
+    if oracle_num_speakers:
+        effective_cap = max(2, min(oracle_num_speakers, n - 1))
+        p_star, _ = estimate_speaker_count_and_p(cos_affinity, effective_cap)
+        num_speakers = oracle_num_speakers
+    else:
+        effective_cap = max(2, min(max_num_speakers, n - 1))
+        p_star, num_speakers = estimate_speaker_count_via_component_plateau(cos_affinity, effective_cap)
     num_speakers = max(1, min(num_speakers, n))
     graph = build_affinity_graph(cos_affinity, p_star)
     embedding = spectral_embedding(graph, num_speakers)
