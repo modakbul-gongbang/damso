@@ -14,8 +14,19 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from .index import build_index, index_path, open_index
+from .index import build_index, index_path, nfc, open_index
 from .people import read_profile
+
+
+# Below this, the trigram tokenizer produces zero tokens for the query term
+# (each token is 3 characters), so an FTS5 MATCH against it always returns
+# zero rows regardless of what the index contains. search()/search_people()
+# fall back to a plain substring LIKE scan under this length instead.
+TRIGRAM_MINIMUM_LENGTH = 3
+
+
+class SearchBackendUnavailable(RuntimeError):
+    """Raised when a keyword search is requested but the FTS5 trigram index could not be built."""
 
 
 TOOL_DEFINITIONS = [
@@ -41,7 +52,29 @@ TOOL_DEFINITIONS = [
         "description": "Get one local speaker profile and that person's meeting history.",
         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
     },
+    {
+        "name": "search_people",
+        "description": "Search local people by name or profile notes. This tool never writes data.",
+        "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}, "required": ["keyword"]},
+    },
 ]
+
+
+def fts5_available(connection: Any) -> bool:
+    row = connection.execute("SELECT value FROM meta WHERE key = 'fts5_available'").fetchone()
+    return row is not None and row["value"] == "1"
+
+
+def fts5_phrase(term: str) -> str:
+    """Quote a raw keyword as an FTS5 phrase so it can't be parsed as query syntax (AND/OR/NEAR/-/*)."""
+    return '"' + term.replace('"', '""') + '"'
+
+
+def plain_snippet(text: str, limit: int = 120) -> str:
+    trimmed = text.strip()
+    if len(trimmed) <= limit:
+        return trimmed
+    return trimmed[:limit].rstrip() + " …"
 
 
 class ReadOnlyStore:
@@ -54,6 +87,11 @@ class ReadOnlyStore:
         return open_index(self.root)
 
     def search(self, date: str | None = None, speaker: str | None = None, keyword: str | None = None) -> list[dict[str, Any]]:
+        if keyword:
+            return self._search_by_keyword(date, speaker, keyword)
+        return self._search_without_keyword(date, speaker)
+
+    def _search_without_keyword(self, date: str | None, speaker: str | None) -> list[dict[str, Any]]:
         query = ["SELECT m.* FROM meetings m"]
         clauses: list[str] = []
         parameters: list[Any] = []
@@ -65,9 +103,6 @@ class ReadOnlyStore:
         if date:
             clauses.append("m.created_at LIKE ?")
             parameters.append(f"{date}%")
-        if keyword:
-            clauses.append("m.searchable LIKE ?")
-            parameters.append(f"%{keyword.lower()}%")
         if clauses:
             query.append("WHERE " + " AND ".join(clauses))
         query.append("ORDER BY m.created_at DESC")
@@ -76,11 +111,103 @@ class ReadOnlyStore:
             rows = connection.execute(" ".join(query), parameters).fetchall()
         finally:
             connection.close()
+        return [public_metadata_from_row(row, self.read_record(row["stem"]) or {}) for row in rows]
+
+    def _search_by_keyword(self, date: str | None, speaker: str | None, keyword: str) -> list[dict[str, Any]]:
+        normalized = nfc(keyword).strip().lower()
+        if not normalized:
+            return self._search_without_keyword(date, speaker)
+        connection = self.connection()
+        try:
+            if not fts5_available(connection):
+                raise SearchBackendUnavailable(
+                    "FTS5/trigram search index is unavailable on this sqlite3 build; keyword search cannot run"
+                )
+            if len(normalized) < TRIGRAM_MINIMUM_LENGTH:
+                # Below the trigram floor, MATCH cannot tokenize the query at
+                # all; fall back to the original substring scan so short
+                # queries keep working rather than silently returning nothing.
+                query = ["SELECT m.* FROM meetings m"]
+                clauses = ["m.searchable LIKE ?"]
+                parameters: list[Any] = [f"%{normalized}%"]
+                if speaker:
+                    query.append("JOIN participants p ON p.stem = m.stem AND lower(p.person) LIKE ?")
+                    parameters.insert(0, f"%{speaker.lower()}%")
+                if date:
+                    clauses.append("m.created_at LIKE ?")
+                    parameters.append(f"{date}%")
+                query.append("WHERE " + " AND ".join(clauses))
+                query.append("ORDER BY m.created_at DESC")
+                rows = connection.execute(" ".join(query), parameters).fetchall()
+                results = []
+                for row in rows:
+                    metadata = public_metadata_from_row(row, self.read_record(row["stem"]) or {})
+                    metadata["snippet"] = plain_snippet(row["searchable"])
+                    results.append(metadata)
+                return results
+
+            query = [
+                "SELECT m.*, snippet(meetings_fts, 0, '', '', ' … ', 12) AS match_snippet",
+                "FROM meetings m JOIN meetings_fts ON meetings_fts.rowid = m.rowid",
+            ]
+            parameters = []
+            if speaker:
+                query.append("JOIN participants p ON p.stem = m.stem AND lower(p.person) LIKE ?")
+                parameters.append(f"%{speaker.lower()}%")
+            clauses = ["meetings_fts MATCH ?"]
+            parameters.append(fts5_phrase(normalized))
+            if date:
+                clauses.append("m.created_at LIKE ?")
+                parameters.append(f"{date}%")
+            query.append("WHERE " + " AND ".join(clauses))
+            query.append("ORDER BY bm25(meetings_fts)")
+            rows = connection.execute(" ".join(query), parameters).fetchall()
+        finally:
+            connection.close()
         results = []
         for row in rows:
-            record = self.read_record(row["stem"]) or {}
-            results.append(public_metadata_from_row(row, record))
+            metadata = public_metadata_from_row(row, self.read_record(row["stem"]) or {})
+            metadata["snippet"] = row["match_snippet"]
+            results.append(metadata)
         return results
+
+    def search_people(self, keyword: str) -> list[dict[str, Any]]:
+        normalized = nfc(keyword).strip().lower()
+        if not normalized:
+            return []
+        connection = self.connection()
+        try:
+            if not fts5_available(connection):
+                raise SearchBackendUnavailable(
+                    "FTS5/trigram search index is unavailable on this sqlite3 build; keyword search cannot run"
+                )
+            if len(normalized) < TRIGRAM_MINIMUM_LENGTH:
+                rows = connection.execute(
+                    "SELECT slug, name, meeting_count, notes FROM people"
+                    " WHERE lower(name) LIKE ? OR lower(notes) LIKE ? ORDER BY name",
+                    (f"%{normalized}%", f"%{normalized}%"),
+                ).fetchall()
+                return [
+                    {
+                        "name": row["name"],
+                        "slug": row["slug"],
+                        "meetingCount": row["meeting_count"],
+                        "snippet": plain_snippet(row["notes"]),
+                    }
+                    for row in rows
+                ]
+            rows = connection.execute(
+                "SELECT p.slug, p.name, p.meeting_count, snippet(people_fts, -1, '', '', ' … ', 12) AS match_snippet"
+                " FROM people p JOIN people_fts ON people_fts.rowid = p.rowid"
+                " WHERE people_fts MATCH ? ORDER BY bm25(people_fts)",
+                (fts5_phrase(normalized),),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [
+            {"name": row["name"], "slug": row["slug"], "meetingCount": row["meeting_count"], "snippet": row["match_snippet"]}
+            for row in rows
+        ]
 
     def read_record(self, stem: str) -> dict[str, Any] | None:
         metadata = self.recordings / stem / "meeting.json"
@@ -175,14 +302,19 @@ def dispatch(store: ReadOnlyStore, request: Mapping[str, Any]) -> dict[str, Any]
     params = request.get("params") or {}
     tool = params.get("name")
     arguments = params.get("arguments") or {}
-    if tool == "search_meetings":
-        payload: Any = store.search(arguments.get("date"), arguments.get("speaker"), arguments.get("keyword"))
-    elif tool == "get_meeting":
-        payload = store.meeting(arguments.get("stem", ""))
-    elif tool == "get_speaker":
-        payload = store.speaker(arguments.get("name", ""))
-    else:
-        return failure(request_id, -32602, "unknown read-only tool")
+    try:
+        if tool == "search_meetings":
+            payload: Any = store.search(arguments.get("date"), arguments.get("speaker"), arguments.get("keyword"))
+        elif tool == "get_meeting":
+            payload = store.meeting(arguments.get("stem", ""))
+        elif tool == "get_speaker":
+            payload = store.speaker(arguments.get("name", ""))
+        elif tool == "search_people":
+            payload = store.search_people(arguments.get("keyword", ""))
+        else:
+            return failure(request_id, -32602, "unknown read-only tool")
+    except SearchBackendUnavailable as error:
+        return failure(request_id, -32000, str(error))
     return success(request_id, {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]})
 
 

@@ -14,6 +14,7 @@ import datetime as dt
 import json
 import sqlite3
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -21,7 +22,7 @@ from .duplicates import detect_candidates
 from .people import read_profile
 
 INDEX_FILENAME = "index.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -47,7 +48,8 @@ CREATE TABLE people (
     meeting_count INTEGER NOT NULL,
     first_seen TEXT,
     last_seen TEXT,
-    has_voice_profile INTEGER NOT NULL
+    has_voice_profile INTEGER NOT NULL,
+    notes TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE duplicate_candidates (
     stem_a TEXT NOT NULL,
@@ -59,6 +61,36 @@ CREATE TABLE duplicate_candidates (
 CREATE INDEX meetings_created_at ON meetings (created_at);
 CREATE INDEX participants_person ON participants (person);
 """
+
+# Kept separate from SCHEMA so a sqlite3 build without FTS5/trigram support
+# (checked at rebuild time, see build_index()) fails only this block: the
+# core tables above always exist, and search_meetings/search_people degrade
+# to an explicit error instead of the whole rebuild aborting.
+SCHEMA_FTS = """
+CREATE VIRTUAL TABLE meetings_fts USING fts5(
+    searchable, content='meetings', content_rowid='rowid', tokenize='trigram'
+);
+CREATE VIRTUAL TABLE people_fts USING fts5(
+    name, notes, content='people', content_rowid='rowid', tokenize='trigram'
+);
+"""
+
+
+def nfc(text: str) -> str:
+    """Normalize to NFC so trigram/FTS5 matching never silently misses NFD text.
+
+    macOS stores Plaud/peoples directory names NFD-decomposed (see
+    agents/rules/INDEX.md#FACT-peoples-directory-nfd); the same fix already
+    applied to Whisper prompt hints in processing.name_variants() must apply
+    to anything fed into the search index.
+    """
+    return unicodedata.normalize("NFC", str(text))
+
+
+def notes_section(body: str) -> str:
+    """Extract the free-text '## Notes' section body, matching people.append_person_note()'s split."""
+    _, _, tail = body.partition("## Notes")
+    return tail.strip()
 
 
 def index_path(store_root: Path) -> Path:
@@ -145,20 +177,28 @@ def build_index(store_root: Path, db_path: Path | None = None) -> dict[str, Any]
     try:
         connection.executescript(SCHEMA)
         connection.execute("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+        try:
+            connection.executescript(SCHEMA_FTS)
+            fts5_ready = True
+        except sqlite3.OperationalError:
+            fts5_ready = False
+        connection.execute("INSERT INTO meta (key, value) VALUES ('fts5_available', ?)", ("1" if fts5_ready else "0"))
 
         for record in records:
             directory = record["_directory"]
             summary = summary_payload(directory)
             summary_text = json.dumps(summary, ensure_ascii=False) if summary else ""
-            searchable = " ".join(
-                part
-                for part in [
-                    str(record.get("title", "")),
-                    summary_text,
-                    transcript_text(directory),
-                    " ".join(captured_participant_names(directory)),
-                ]
-                if part
+            searchable = nfc(
+                " ".join(
+                    part
+                    for part in [
+                        str(record.get("title", "")),
+                        summary_text,
+                        transcript_text(directory),
+                        " ".join(captured_participant_names(directory)),
+                    ]
+                    if part
+                )
             ).lower()
             connection.execute(
                 "INSERT INTO meetings (stem, title, source, created_at, duration_seconds, stage, summary_one_line, searchable)"
@@ -184,20 +224,25 @@ def build_index(store_root: Path, db_path: Path | None = None) -> dict[str, Any]
                     "INSERT OR IGNORE INTO participants (stem, person, speaker_label) VALUES (?, ?, ?)",
                     (record["stem"], person, str(resolution.get("speaker", ""))),
                 )
+        if fts5_ready:
+            connection.execute("INSERT INTO meetings_fts(meetings_fts) VALUES ('rebuild')")
 
-        for slug, fields, directory in iter_people(store_root):
+        for slug, fields, body, directory in iter_people(store_root):
             connection.execute(
-                "INSERT OR REPLACE INTO people (slug, name, meeting_count, first_seen, last_seen, has_voice_profile)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO people (slug, name, meeting_count, first_seen, last_seen, has_voice_profile, notes)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
-                    slug,
-                    str(fields.get("name") or slug),
+                    nfc(slug),
+                    nfc(str(fields.get("name") or slug)),
                     int(fields.get("meeting_count") or 0),
                     fields.get("first_seen"),
                     fields.get("last_seen"),
                     1 if (directory / "voice.npy").is_file() else 0,
+                    nfc(notes_section(body)),
                 ),
             )
+        if fts5_ready:
+            connection.execute("INSERT INTO people_fts(people_fts) VALUES ('rebuild')")
 
         for candidate in safe_duplicate_candidates(records):
             connection.execute(
@@ -215,10 +260,11 @@ def build_index(store_root: Path, db_path: Path | None = None) -> dict[str, Any]
         "database": str(destination),
         "meetings": len(records),
         "built_from": str(store_root),
+        "fts5_available": fts5_ready,
     }
 
 
-def iter_people(store_root: Path) -> Iterable[tuple[str, Mapping[str, Any], Path]]:
+def iter_people(store_root: Path) -> Iterable[tuple[str, Mapping[str, Any], str, Path]]:
     peoples = store_root / "Plaud" / "peoples"
     directories = []
     if peoples.is_dir():
@@ -230,8 +276,8 @@ def iter_people(store_root: Path) -> Iterable[tuple[str, Mapping[str, Any], Path
         directories.append(me)
     today = dt.date.today().isoformat()
     for directory in sorted(directories, key=lambda item: item.name):
-        fields, _ = read_profile(directory / "profile.md", directory.name, today)
-        yield directory.name, fields, directory
+        fields, body = read_profile(directory / "profile.md", directory.name, today)
+        yield directory.name, fields, body, directory
 
 
 def safe_duplicate_candidates(records: list[dict[str, Any]]):
@@ -254,11 +300,34 @@ def safe_duplicate_candidates(records: list[dict[str, Any]]):
 def open_index(store_root: Path, *, rebuild_if_missing: bool = True) -> sqlite3.Connection:
     store_root = store_root.expanduser().resolve()
     path = index_path(store_root)
-    if not path.is_file() and rebuild_if_missing:
+    needs_rebuild = not path.is_file()
+    if not needs_rebuild:
+        needs_rebuild = _schema_is_stale(path)
+    if needs_rebuild and rebuild_if_missing:
         build_index(store_root)
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def _schema_is_stale(path: Path) -> bool:
+    """True when the on-disk index predates the code's SCHEMA_VERSION.
+
+    A caller (search_meetings/search_people/get_speaker) that hits this
+    blocks synchronously on the resulting rebuild in open_index() above: at
+    current store sizes a rebuild finishes in low single-digit seconds, and a
+    slightly slower single response is simpler than serving stale/partial
+    results while a background rebuild races the caller.
+    """
+    try:
+        probe = sqlite3.connect(path)
+        try:
+            row = probe.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        finally:
+            probe.close()
+    except sqlite3.DatabaseError:
+        return True
+    return row is None or row[0] != str(SCHEMA_VERSION)
 
 
 def main() -> int:

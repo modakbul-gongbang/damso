@@ -52,7 +52,7 @@ hourly pull · 7-day catch-up · dedup · same local pipeline
 - **Wearable recordings come to you.** External Sync polls the official Plaud CLI once an hour (or on demand), imports anything new from the last seven days, validates the audio, and queues it for transcription - sequentially, so a backlog never floods your machine. Interrupted work resumes on the next launch, and a watermark plus per-file index guarantees a recording is never imported twice.
 - **One manual step.** After recording, transcription and speaker separation run locally and automatically. You confirm each detected voice from candidate suggestions - participant names captured live from the meeting tab appear first. The moment the last card is decided, the summary and title generate themselves.
 - **Files are the source of truth.** Every meeting is a folder (`Plaud/recordings/<id>/`) of plain JSON and Markdown. The SQLite index is derived from those files and can always be rebuilt from them - deterministically, with no LLM call.
-- **MCP search built in.** A read-only stdio MCP server exposes `search_meetings`, `get_meeting`, and `get_speaker`, so Claude Desktop or any MCP client can search your meetings and people locally.
+- **MCP search built in.** A read-only stdio MCP server exposes `search_meetings`, `get_meeting`, `get_speaker`, and `search_people`, so Claude Desktop or any MCP client can search your meetings and people locally. Keyword search runs on a local FTS5 + BM25 index (no LLM, no network) and ranks by relevance instead of just newest-first.
 - **Your choice of agent.** Summaries and titles run through the CLI you already use - Claude Code or Codex - in a sandbox that cannot read or write your meeting store, receives only transcript text, and returns only schema-validated JSON.
 - **Korean or English.** The interface and all generated output follow the in-app language setting. Korean is the default.
 
@@ -108,8 +108,9 @@ plaud login              # opens your browser; Damso never touches the token
 DAMSO_STORE=... make mcp
 ```
 
-Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`.
-The index is rebuilt automatically by the app after each pipeline step; rebuild manually anytime with `make reindex` or the Settings action.
+Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword)`.
+`search_meetings` and `search_people` match keywords through a local SQLite FTS5 index (trigram tokenizer, so Korean and English both work) and rank results by BM25 relevance; each result includes a `snippet` showing why it matched. Filtering by date or speaker alone still returns newest-first, unchanged from before.
+The index is rebuilt automatically by the app after each pipeline step, and automatically upgraded in place the first time an older index is opened after an update; rebuild manually anytime with `make reindex` or the Settings action.
 
 ## Development
 

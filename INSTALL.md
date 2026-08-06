@@ -92,15 +92,19 @@ Do not automate `plaud login` and do not copy session files between machines.
 
 ## Search index
 
-`index.sqlite3` at the store root is a derived SQLite search index over meetings, people, and their relations.
+`index.sqlite3` at the store root is a derived SQLite search index over meetings, people, and their relations, including an FTS5 (trigram tokenizer) full-text index used for keyword search.
 The files stay canonical: the index is rebuilt deterministically from `meeting.json`, `summary.json`, transcripts, and profiles, with no LLM call and no network access.
 The app refreshes it after each pipeline step; rebuild it manually with `make reindex` or the **Rebuild search index** action in Settings.
+Opening an index built by an older version of Damso automatically triggers a synchronous rebuild on the next search, so no manual migration step is needed after an update.
+If the local sqlite3 build lacks FTS5/trigram support, keyword search returns an explicit error instead of silently falling back to a lower-quality match; date/speaker-only search and `get_meeting`/`get_speaker` are unaffected either way.
 
 ## Local MCP
 
 The MCP server reads the canonical store and its SQLite index through stdio.
 It does not bind a network listener and does not expose a write tool.
-The tools are `search_meetings`, `get_meeting`, and `get_speaker`; their response fields are stable and only ever extended.
+The tools are `search_meetings`, `get_meeting`, `get_speaker`, and `search_people`; their response fields are stable and only ever extended.
+`search_meetings` and `search_people` keyword matches are ranked by BM25 relevance and include a `snippet` field with matching context; filtering by date or speaker alone keeps the original newest-first order.
+`search_people(keyword)` searches profile names and the free-text Notes section, returning candidate people (`name`, `slug`, `meetingCount`, `snippet`) for when you don't remember an exact name.
 
 ```sh
 export DAMSO_STORE="$HOME/Library/Application Support/Damso"

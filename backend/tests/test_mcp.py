@@ -1,10 +1,12 @@
 import inspect
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from damso import mcp
+from damso.index import index_path
 from damso.mcp import ReadOnlyStore, dispatch
 
 
@@ -30,12 +32,15 @@ def make_store(root: Path) -> ReadOnlyStore:
         encoding="utf-8",
     )
     record_dir.joinpath("transcript.raw.json").write_text(
-        json.dumps({"segments": [{"speaker": "SPEAKER_00", "start": 0, "end": 1, "text": "keyword text"}]}),
+        json.dumps({"segments": [{"speaker": "SPEAKER_00", "start": 0, "end": 1, "text": "keyword text milestone"}]}),
         encoding="utf-8",
     )
     profile = root / "Plaud" / "peoples" / "Kim-Partner" / "profile.md"
     profile.parent.mkdir(parents=True)
-    profile.write_text("---\nname: \"Kim Partner\"\n---\n## Notes\nSynthetic profile.\n", encoding="utf-8")
+    profile.write_text(
+        "---\nname: \"Kim Partner\"\n---\n## Description\n\n## Meetings\n\n## Notes\nSynthetic profile. Interested in the roadmap discussion.\n",
+        encoding="utf-8",
+    )
     owner = root / "Plaud" / "me" / "profile.md"
     owner.parent.mkdir(parents=True)
     owner.write_text("---\nname: \"Owner\"\n---\n## Notes\nSynthetic owner profile.\n", encoding="utf-8")
@@ -55,7 +60,7 @@ class MCPTests(unittest.TestCase):
             self.assertEqual(payload[0]["stem"], "fixture")
             self.assertEqual(before, record_path.read_bytes())
             definitions = dispatch(store, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
-            self.assertEqual({item["name"] for item in definitions}, {"search_meetings", "get_meeting", "get_speaker"})
+            self.assertEqual({item["name"] for item in definitions}, {"search_meetings", "get_meeting", "get_speaker", "search_people"})
             self.assertTrue(all(not item["name"].startswith(("write", "update", "delete")) for item in definitions))
             meeting = dispatch(store, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_meeting", "arguments": {"stem": "fixture"}}})
             meeting_payload = json.loads(meeting["result"]["content"][0]["text"])
@@ -98,6 +103,99 @@ class MCPTests(unittest.TestCase):
             self.assertTrue((root / "index.sqlite3").is_file())
             missing = dispatch(store, {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "search_meetings", "arguments": {"keyword": "absent-keyword"}}})
             self.assertEqual(json.loads(missing["result"]["content"][0]["text"]), [])
+
+    def test_search_meetings_keyword_adds_snippet_and_ranks_by_relevance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = make_store(root)
+            frequent_dir = root / "Plaud" / "recordings" / "fixture-frequent"
+            frequent_dir.mkdir(parents=True)
+            frequent_dir.joinpath("meeting.json").write_text(
+                json.dumps(
+                    {
+                        "stem": "fixture-frequent",
+                        "title": "Milestone planning",
+                        "source": "local",
+                        "createdAt": "2026-07-10T00:00:00Z",
+                        "stage": "complete",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            frequent_dir.joinpath("transcript.raw.json").write_text(
+                json.dumps(
+                    {
+                        "segments": [
+                            {
+                                "speaker": "SPEAKER_00",
+                                "start": 0,
+                                "end": 1,
+                                "text": "milestone milestone milestone the milestone review covers every milestone on the roadmap",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            response = dispatch(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_meetings", "arguments": {"keyword": "milestone"}}})
+            payload = json.loads(response["result"]["content"][0]["text"])
+            self.assertEqual([item["stem"] for item in payload], ["fixture-frequent", "fixture"])
+            for item in payload:
+                self.assertIn("snippet", item)
+                self.assertTrue(LEGACY_SEARCH_KEYS.issubset(item.keys()))
+            self.assertIn("milestone", payload[0]["snippet"].lower())
+
+    def test_search_meetings_short_keyword_falls_back_to_substring_match_with_snippet(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = make_store(root)
+            # "ke" is below the trigram tokenizer's 3-character floor.
+            response = dispatch(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_meetings", "arguments": {"keyword": "ke"}}})
+            payload = json.loads(response["result"]["content"][0]["text"])
+            self.assertEqual([item["stem"] for item in payload], ["fixture"])
+            self.assertIn("snippet", payload[0])
+
+    def test_search_people_matches_profile_notes_and_returns_empty_array_for_no_match(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = make_store(root)
+            found = dispatch(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_people", "arguments": {"keyword": "roadmap"}}})
+            payload = json.loads(found["result"]["content"][0]["text"])
+            self.assertEqual(len(payload), 1)
+            self.assertEqual(payload[0]["name"], "Kim Partner")
+            self.assertEqual(set(payload[0].keys()), {"name", "slug", "meetingCount", "snippet"})
+            self.assertIn("roadmap", payload[0]["snippet"].lower())
+
+            empty = dispatch(store, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "search_people", "arguments": {"keyword": "nonexistent-term"}}})
+            self.assertEqual(json.loads(empty["result"]["content"][0]["text"]), [])
+
+    def test_fts5_unavailable_fails_keyword_search_explicitly_but_other_tools_keep_working(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = make_store(root)
+            store.search()  # build the index once
+            connection = sqlite3.connect(index_path(root))
+            try:
+                connection.execute("UPDATE meta SET value = '0' WHERE key = 'fts5_available'")
+                connection.commit()
+            finally:
+                connection.close()
+
+            keyword_search = dispatch(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_meetings", "arguments": {"keyword": "keyword"}}})
+            self.assertIn("error", keyword_search)
+
+            people_search = dispatch(store, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "search_people", "arguments": {"keyword": "roadmap"}}})
+            self.assertIn("error", people_search)
+
+            plain_search = dispatch(store, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_meetings", "arguments": {"date": "2026-07-14"}}})
+            self.assertNotIn("error", plain_search)
+            self.assertEqual(json.loads(plain_search["result"]["content"][0]["text"])[0]["stem"], "fixture")
+
+            meeting = dispatch(store, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_meeting", "arguments": {"stem": "fixture"}}})
+            self.assertNotIn("error", meeting)
+
+            speaker = dispatch(store, {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_speaker", "arguments": {"name": "Kim Partner"}}})
+            self.assertNotIn("error", speaker)
 
 
 if __name__ == "__main__":
