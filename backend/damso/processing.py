@@ -397,6 +397,12 @@ class LocalModelConfig:
 # the transcript remains a faithful record.
 MAX_CONSECUTIVE_PHRASE_REPEATS = 3
 MAX_COLLAPSE_PHRASE_TOKENS = 8
+# The phrase collapse above works on whitespace-separated tokens, so a loop
+# with no spaces ("ТыТыТы..." repeated hundreds of times, "레레레...") arrives
+# as one giant token and slips through untouched. This collapses a short unit
+# repeated far past the cap *within* a single token, script-agnostically and
+# collapse-only, so those model loops stop reaching the reader.
+MAX_COLLAPSE_CHAR_UNIT = 8
 MEANINGFUL_TEXT = re.compile(r"[가-힣0-9A-Za-z]")
 
 # Whisper continues the style of initial_prompt. An unpunctuated bag of terms
@@ -493,8 +499,51 @@ def build_initial_prompt(
     return " ".join(sentences)
 
 
+def collapse_char_runs(
+    token: str,
+    max_repeats: int = MAX_CONSECUTIVE_PHRASE_REPEATS,
+    max_unit: int = MAX_COLLAPSE_CHAR_UNIT,
+) -> str:
+    """Collapse a short unit repeated past the cap inside one space-less token.
+
+    Mirrors ``collapse_repetitions`` but at the character level, so a loop with
+    no spaces is caught even where phrase collapse cannot see it. Only a run
+    that repeats more than ``max_repeats`` times is trimmed, to its first
+    ``max_repeats`` copies; ordinary words never repeat a short unit that often,
+    so they pass through unchanged. Collapse-only: no character is ever added,
+    reordered, or rewritten.
+    """
+    if len(token) <= max_repeats:
+        return token
+    for _ in range(4):  # bounded stabilization passes, matching phrase collapse
+        changed = False
+        for size in range(1, max_unit + 1):
+            collapsed: list[str] = []
+            index = 0
+            while index < len(token):
+                unit = token[index : index + size]
+                if len(unit) < size:
+                    collapsed.append(token[index:])
+                    break
+                count = 1
+                cursor = index + size
+                while token[cursor : cursor + size] == unit:
+                    count += 1
+                    cursor += size
+                if count > max_repeats:
+                    collapsed.append(unit * max_repeats)
+                    changed = True
+                else:
+                    collapsed.append(token[index:cursor])
+                index = cursor
+            token = "".join(collapsed)
+        if not changed:
+            break
+    return token
+
+
 def collapse_repetitions(text: str, max_repeats: int = MAX_CONSECUTIVE_PHRASE_REPEATS) -> str:
-    tokens = text.split()
+    tokens = [collapse_char_runs(token, max_repeats) for token in text.split()]
     if len(tokens) <= max_repeats:
         return " ".join(tokens)
     for _ in range(4):  # bounded stabilization passes

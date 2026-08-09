@@ -122,7 +122,13 @@ private struct StoredCleanupOverlay: Decodable {
         var text: String
     }
 
+    var generationID: String?
     var corrections: [Correction]
+
+    enum CodingKeys: String, CodingKey {
+        case generationID = "generation_id"
+        case corrections
+    }
 }
 
 private struct StoredSpeakerProposal: Decodable {
@@ -207,7 +213,11 @@ extension MeetingStore {
         let segments = transcript.segments.map {
             TranscriptSegment(speaker: $0.speaker, startSeconds: $0.start, endSeconds: $0.end, text: $0.text)
         }
-        let cleanedTexts = cleanupOverlay(directory: directory, segmentCount: segments.count)
+        let cleanedTexts = cleanupOverlay(
+            directory: directory,
+            segmentCount: segments.count,
+            transcriptGeneration: transcript.generationID
+        )
         let identificationURL = directory.appendingPathComponent("identification.json")
         guard FileManager.default.fileExists(atPath: identificationURL.path) else {
             return MeetingProcessingArtifacts(transcript: segments, proposals: [], cleanedTexts: cleanedTexts)
@@ -346,10 +356,19 @@ extension MeetingStore {
         return FileManager.default.fileExists(atPath: overlay.path)
     }
 
-    private func cleanupOverlay(directory: URL, segmentCount: Int) -> [Int: String] {
+    private func cleanupOverlay(directory: URL, segmentCount: Int, transcriptGeneration: String?) -> [Int: String] {
         let overlayURL = directory.appendingPathComponent("transcript.cleaned.json")
         guard let data = try? Data(contentsOf: overlayURL),
               let overlay = try? JSONDecoder().decode(StoredCleanupOverlay.self, from: data) else {
+            return [:]
+        }
+        // The overlay corrects segments by index, so it is only valid for the
+        // exact transcript it was computed against. recluster rewrites the
+        // transcript with a new generation_id and a different segmentation; an
+        // overlay bound to a stale generation would paint corrections onto
+        // unrelated segments, so it is ignored until cleanup re-runs. A legacy
+        // overlay and transcript (both without a generation_id) still match.
+        guard overlay.generationID == transcriptGeneration else {
             return [:]
         }
         var cleaned: [Int: String] = [:]

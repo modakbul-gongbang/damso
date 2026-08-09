@@ -1159,6 +1159,30 @@ class TranscriptCleanupTests(unittest.TestCase):
         text = "네 네 맞아요 그 부분은 금요일까지 정리하고 다시 공유드릴게요"
         self.assertEqual(collapse_repetitions(text), text)
 
+    def test_space_less_character_loop_is_collapsed(self):
+        from damso.processing import collapse_char_runs, collapse_repetitions
+
+        # A repeated two-character unit with no spaces arrives as one giant
+        # token that whitespace-based phrase collapse cannot see.
+        looped = "멀부" + "Ты" * 200
+        self.assertEqual(collapse_char_runs(looped), "멀부" + "Ты" * 3)
+        # And it is collapsed when embedded in an ordinary segment of text.
+        sentence = "슬랙에서 이미지. " + looped
+        cleaned = collapse_repetitions(sentence)
+        self.assertLess(len(cleaned), 40)
+        self.assertIn("슬랙에서 이미지.", cleaned)
+
+    def test_space_less_single_character_loop_is_collapsed(self):
+        from damso.processing import collapse_char_runs
+
+        self.assertEqual(collapse_char_runs("레" * 40), "레레레")
+
+    def test_char_collapse_leaves_ordinary_words_unchanged(self):
+        from damso.processing import collapse_char_runs
+
+        for word in ["안녕하세요", "감사합니다", "스프레드시트", "회의록", "커리큘럼"]:
+            self.assertEqual(collapse_char_runs(word), word)
+
     def test_consecutive_identical_segments_are_capped(self):
         from damso.processing import clean_transcribed_segments
 

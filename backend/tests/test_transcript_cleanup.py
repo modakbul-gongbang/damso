@@ -23,13 +23,16 @@ class _Boundary:
         return self.result
 
 
-def make_record(root: Path) -> Path:
-    record = root / "Plaud" / "recordings" / "fixture"
+def make_record(root: Path, generation_id: str | None = None, name: str = "fixture") -> Path:
+    record = root / "Plaud" / "recordings" / name
     record.mkdir(parents=True)
-    (record / "transcript.raw.json").write_text(json.dumps({"segments": [
+    transcript: dict = {"segments": [
         {"speaker": "SPEAKER_00", "text": "아 아 아 아 아 아 다시 이제 SF 쪽 이야기"},
         {"speaker": "SPEAKER_01", "text": "커리큘럼은 제가 정리할게요"},
-    ]}, ensure_ascii=False), encoding="utf-8")
+    ]}
+    if generation_id is not None:
+        transcript["generation_id"] = generation_id
+    (record / "transcript.raw.json").write_text(json.dumps(transcript, ensure_ascii=False), encoding="utf-8")
     return record
 
 
@@ -72,6 +75,17 @@ class CleanupPromptTests(unittest.TestCase):
         # But the pass may only delete words, never add or rewrite them.
         self.assertIn("ONLY delete words", prompt)
 
+    def test_prompt_targets_non_speech_boilerplate_generically_without_phrase_list(self):
+        prompt = build_cleanup_prompt({"segments": [{"speaker": "A", "text": "hello"}]})
+        # The non-speech-hallucination rule is expressed by category and by
+        # context, so it generalizes across recordings.
+        self.assertIn("non-speech boilerplate", prompt)
+        self.assertIn("from context", prompt)
+        # Anti-overfitting guardrail: never enumerate the specific hallucinated
+        # phrases seen in one recording.
+        for overfit_phrase in ["다음 영상에서 만나요", "감사합니다", "좋아요", "구독"]:
+            self.assertNotIn(overfit_phrase, prompt)
+
 
 class CleanupExecuteTests(unittest.TestCase):
     def test_complete_result_writes_overlay_and_keeps_original(self):
@@ -106,6 +120,59 @@ class CleanupExecuteTests(unittest.TestCase):
 
             self.assertTrue(response["cached"])
             self.assertEqual(response["correction_count"], 1)
+            self.assertEqual(boundary.prompts, [])
+
+    def test_overlay_records_the_transcript_generation_id(self):
+        with tempfile.TemporaryDirectory() as raw:
+            record = make_record(Path(raw), generation_id="gen-A")
+            boundary = _Boundary(BoundaryResult("complete", {"corrections": [{"index": 0, "text": "아 아 아 다시 이제 SF 쪽 이야기"}]}))
+
+            execute_request(
+                {"recording_directory": str(record), "agent": "claude"},
+                boundary_factory=lambda agent, storage_root: boundary,
+            )
+
+            overlay = json.loads((record / CLEANED_FILENAME).read_text(encoding="utf-8"))
+            self.assertEqual(overlay["generation_id"], "gen-A")
+
+    def test_generation_mismatch_regenerates_instead_of_reusing_stale_overlay(self):
+        with tempfile.TemporaryDirectory() as raw:
+            # An overlay bound to an older generation (from before a recluster
+            # rewrote the transcript) must not be reused against the current
+            # transcript; the pass must run again and rebind the overlay.
+            record = make_record(Path(raw), generation_id="gen-NEW")
+            (record / CLEANED_FILENAME).write_text(
+                json.dumps({"generation_id": "gen-OLD", "corrections": [{"index": 1, "text": "x"}]}),
+                encoding="utf-8",
+            )
+            boundary = _Boundary(BoundaryResult("complete", {"corrections": [{"index": 0, "text": "아 아 아 다시 이제 SF 쪽 이야기"}]}))
+
+            response = execute_request(
+                {"recording_directory": str(record), "agent": "claude"},
+                boundary_factory=lambda agent, storage_root: boundary,
+            )
+
+            self.assertNotIn("cached", response)
+            self.assertEqual(len(boundary.prompts), 1)
+            overlay = json.loads((record / CLEANED_FILENAME).read_text(encoding="utf-8"))
+            self.assertEqual(overlay["generation_id"], "gen-NEW")
+            self.assertEqual(overlay["corrections"][0]["index"], 0)
+
+    def test_matching_generation_overlay_is_reused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            record = make_record(Path(raw), generation_id="gen-SAME")
+            (record / CLEANED_FILENAME).write_text(
+                json.dumps({"generation_id": "gen-SAME", "corrections": [{"index": 1, "text": "x"}]}),
+                encoding="utf-8",
+            )
+            boundary = _Boundary(BoundaryResult("complete", {"corrections": []}))
+
+            response = execute_request(
+                {"recording_directory": str(record), "agent": "claude"},
+                boundary_factory=lambda agent, storage_root: boundary,
+            )
+
+            self.assertTrue(response["cached"])
             self.assertEqual(boundary.prompts, [])
 
     def test_missing_cli_and_missing_transcript_are_bounded(self):

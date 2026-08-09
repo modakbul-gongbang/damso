@@ -95,6 +95,11 @@ def build_cleanup_prompt(transcript: Mapping[str, Any]) -> str:
         "Remove the following, and only the following:\n"
         "- hallucinated repetition loops (the same word or phrase repeated over and over)\n"
         "- garbled fragments that are clearly recognition noise, not speech\n"
+        "- isolated or repeated non-speech boilerplate that speech recognition emits over silence, music, "
+        "or applause rather than transcribing anyone (a stock closing, a bare acknowledgement, or a "
+        "subtitle/credit-style line) when it clearly does not belong to the surrounding conversation. "
+        "Judge this from context, not from a fixed list of phrases, and keep the phrase whenever a speaker "
+        "could genuinely have said it there\n"
         "- meaningless fillers and hesitation sounds (for example 음, 어, 아, 그, 저기, 뭐, 인제, uh, um, you know) "
         "when they carry no meaning\n"
         "- stutters, false starts, and immediate self-repetition (a partial or repeated word the speaker restarts), "
@@ -154,13 +159,6 @@ def execute_request(
         raise TranscriptCleanupError("agent must be claude or codex")
 
     overlay_path = recording_directory / CLEANED_FILENAME
-    if overlay_path.is_file() and not request.get("force"):
-        try:
-            existing = json.loads(overlay_path.read_text(encoding="utf-8"))
-            count = len(existing.get("corrections", []))
-        except (OSError, json.JSONDecodeError):
-            count = 0
-        return {"ok": True, "status": "complete", "correction_count": count, "cached": True}
 
     transcript_path = recording_directory / "transcript.raw.json"
     if not transcript_path.is_file():
@@ -173,6 +171,26 @@ def execute_request(
         raise TranscriptCleanupError("the local transcript is unreadable") from error
     if not isinstance(transcript, Mapping):
         raise TranscriptCleanupError("the local transcript is invalid")
+    generation_id = transcript.get("generation_id")
+
+    # A cached overlay is reused only when it was computed against the current
+    # transcript. The recluster path rewrites transcript.raw.json with a new
+    # generation_id and a different segmentation, so an overlay bound to a
+    # stale generation must be regenerated rather than reapplied by index to a
+    # transcript it no longer aligns with. A legacy overlay (no generation_id)
+    # over a legacy transcript (also none) still matches and is reused.
+    if overlay_path.is_file() and not request.get("force"):
+        try:
+            existing = json.loads(overlay_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = None
+        if isinstance(existing, Mapping) and existing.get("generation_id") == generation_id:
+            return {
+                "ok": True,
+                "status": "complete",
+                "correction_count": len(existing.get("corrections", []) or []),
+                "cached": True,
+            }
 
     try:
         prompt = build_cleanup_prompt(transcript)
@@ -194,6 +212,7 @@ def execute_request(
             "version": 1,
             "agent": agent,
             "model": CHEAP_MODELS.get(agent),
+            "generation_id": generation_id,
             "created_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "corrections": corrections,
         })
