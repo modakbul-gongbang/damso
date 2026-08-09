@@ -52,7 +52,7 @@ enum LocalTranscriptCleanupCommandError: Error, Equatable {
 enum LocalTranscriptCleanupProcessRunner {
     private static let maximumResponseBytes = 64 * 1_024
 
-    static func run(_ request: LocalTranscriptCleanupRequest, command: LocalTranscriptCleanupCommand = .init()) throws -> LocalTranscriptCleanupResult {
+    static func run(_ request: LocalTranscriptCleanupRequest, command: LocalTranscriptCleanupCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalTranscriptCleanupResult {
         let input: Data
         do {
             input = try JSONEncoder().encode(request)
@@ -60,32 +60,27 @@ enum LocalTranscriptCleanupProcessRunner {
             throw LocalTranscriptCleanupCommandError.requestEncoding
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command.arguments
-        process.environment = ProcessRuntime.environment()
-        let standardInput = Pipe()
-        let standardOutput = Pipe()
-        process.standardInput = standardInput
-        process.standardOutput = standardOutput
-        process.standardError = Pipe()
+        let argv: [String]
+        switch launcher.configuration.mode {
+        case .local:
+            argv = command.arguments
+        case .remote:
+            argv = launcher.argv(module: "damso.transcript_cleanup", moduleArguments: ["--request", "-"])
+        }
+
+        let output: CommandLauncherOutput
         do {
-            try process.run()
+            output = try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
+        } catch CommandLauncherError.oversizedResponse {
+            throw LocalTranscriptCleanupCommandError.oversizedResponse
         } catch {
             throw LocalTranscriptCleanupCommandError.launchFailed
         }
-        standardInput.fileHandleForWriting.write(input)
-        try? standardInput.fileHandleForWriting.close()
-        process.waitUntilExit()
 
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        guard output.count <= maximumResponseBytes else {
-            throw LocalTranscriptCleanupCommandError.oversizedResponse
-        }
-        guard process.terminationStatus == 0 else {
+        guard output.terminationStatus == 0 else {
             throw LocalTranscriptCleanupCommandError.failed
         }
-        guard let result = try? JSONDecoder().decode(LocalTranscriptCleanupResult.self, from: output) else {
+        guard let result = try? JSONDecoder().decode(LocalTranscriptCleanupResult.self, from: output.data) else {
             throw LocalTranscriptCleanupCommandError.invalidResponse
         }
         return result

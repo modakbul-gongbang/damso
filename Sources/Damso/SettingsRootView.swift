@@ -24,6 +24,7 @@ struct SettingsRootView: View {
         case externalSync
         case calendar
         case storage
+        case remoteExecution
         case models
 
         var id: String { rawValue }
@@ -36,6 +37,7 @@ struct SettingsRootView: View {
             case .externalSync: Loc.tr("External Sync")
             case .calendar: Loc.tr("Calendar")
             case .storage: Loc.tr("Storage")
+            case .remoteExecution: Loc.tr("Server Mac")
             case .models: Loc.tr("Local Models")
             }
         }
@@ -48,6 +50,7 @@ struct SettingsRootView: View {
             case .externalSync: "arrow.triangle.2.circlepath"
             case .calendar: "calendar.badge.plus"
             case .storage: "externaldrive"
+            case .remoteExecution: "desktopcomputer"
             case .models: "waveform.badge.magnifyingglass"
             }
         }
@@ -162,6 +165,7 @@ struct SettingsRootView: View {
         case .externalSync: SettingsPane { ExternalSyncSettingsView(sync: sync) }
         case .calendar: SettingsPane { CalendarSettingsView() }
         case .storage: SettingsPane { StorageRootSettingsView() }
+        case .remoteExecution: SettingsPane { RemoteExecutionSettingsView() }
         case .models: SettingsPane { ModelSetupSettingsView() }
         }
     }

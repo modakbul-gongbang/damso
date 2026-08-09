@@ -757,6 +757,9 @@ func speakerCountPrefillsFromParticipantNamesUntilHandAdjusted() {
     #expect(SpeakerPlan.prefilledCount(current: 2, oldParticipants: ["다예"], newParticipants: []) == 0)
     // A hand-adjusted count is never overwritten by later name edits.
     #expect(SpeakerPlan.prefilledCount(current: 5, oldParticipants: ["다예"], newParticipants: ["다예", "주은"]) == 5)
+    // A fresh session starts at the default (2), which still counts as
+    // untouched: adding names past that still derives, it does not stick.
+    #expect(SpeakerPlan.prefilledCount(current: SpeakerPlan.defaultCount, oldParticipants: [], newParticipants: ["다예", "주은"]) == 3)
 }
 
 @Test @MainActor
@@ -805,4 +808,236 @@ func reclusterReplaysTheProcessingAudioAndRefusesOnceConfirmationStarted() async
     controller.select(stem: record.stem)
     await controller.reclusterSpeakers(count: 3)
     #expect(backend.reclusterRequests.count == 1)
+}
+
+@Test @MainActor
+func cleanupOverlayIsIgnoredWhenItsGenerationDoesNotMatchTheTranscript() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = MeetingStore(root: root, minimumFreeBytes: 0)
+    var record = try store.createRecord(MeetingDraft(stem: "overlay-fixture", source: .local, title: "x"))
+    record.stage = .speakerReview
+    try store.commit(record)
+    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: record.stem)
+    try Data(#"{"generation_id":"gen-A","segments":[{"start":0.0,"end":2.0,"speaker":"SPEAKER_00","text":"원문 하나"},{"start":2.0,"end":4.0,"speaker":"SPEAKER_01","text":"원문 둘"}]}"#.utf8)
+        .write(to: directory.appendingPathComponent("transcript.raw.json"))
+    let overlayURL = directory.appendingPathComponent("transcript.cleaned.json")
+
+    // Matching generation: the correction is applied by index.
+    try Data(#"{"generation_id":"gen-A","corrections":[{"index":0,"text":"정리된 하나"}]}"#.utf8).write(to: overlayURL)
+    #expect(try store.processingArtifacts(stem: record.stem).cleanedTexts[0] == "정리된 하나")
+
+    // Stale generation (a recluster rewrote the transcript under a new
+    // generation_id): the overlay would paint corrections onto the wrong
+    // segments, so it is ignored entirely and the raw text stands.
+    try Data(#"{"generation_id":"gen-OLD","corrections":[{"index":0,"text":"정리된 하나"}]}"#.utf8).write(to: overlayURL)
+    #expect(try store.processingArtifacts(stem: record.stem).cleanedTexts.isEmpty)
+}
+
+@Test @MainActor
+func reclusterInvalidatesStaleCleanupOverlayAndReRunsCleanup() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var record = try store.load(stem: "pipeline-fixture")
+    record.originalAudioFile = "microphone.caf"
+    try store.update(record)
+    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: record.stem)
+    try Data("synthetic".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
+    controller.refreshLibrary()
+    controller.select(stem: record.stem)
+
+    // The first open runs cleanup once and writes the overlay.
+    let overlayURL = directory.appendingPathComponent("transcript.cleaned.json")
+    for _ in 0..<100 {
+        if backend.cleanupRequests.count == 1 { break }
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    #expect(backend.cleanupRequests.count == 1)
+    #expect(FileManager.default.fileExists(atPath: overlayURL.path))
+
+    await controller.reclusterSpeakers(count: 2)
+
+    // recluster must drop the stale overlay and clear the run-once guard so a
+    // fresh cleanup pass runs against the re-clustered transcript, rather than
+    // leaving the old overlay to be re-applied by index.
+    for _ in 0..<100 {
+        if backend.cleanupRequests.count == 2 { break }
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    #expect(backend.reclusterRequests.count == 1)
+    #expect(backend.cleanupRequests.count == 2)
+    #expect(FileManager.default.fileExists(atPath: overlayURL.path))
+}
+
+@Test @MainActor
+func aClientRoleNeverOrchestratesProcessingForARecordStuckMidFlight() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cacheRoot = root.appendingPathComponent("cache", isDirectory: true)
+    let outboxRoot = root.appendingPathComponent("outbox", isDirectory: true)
+    let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
+    var record = try cache.createRecord(MeetingDraft(stem: "stuck-fixture", source: .local, title: "Stuck"))
+    record.stage = .captured
+    try cache.commit(record)
+
+    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
+    configuration.configureRemote(host: "mini", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
+    let remoteStore = RemoteMeetingStore(launcher: CommandLauncher(configuration: configuration), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    let backend = FakeBackend()
+
+    let controller = MeetingWorkspaceController(store: remoteStore, capture: NoopCapture(), backend: backend)
+
+    // The record still shows up (refreshLibrary is unconditional)...
+    #expect(controller.records.map(\.stem).contains("stuck-fixture"))
+    // ...but a client never decides to resume it - that is the mini's job
+    // against the canonical store it owns (R13/T14).
+    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
+    #expect(controller.role == .client)
+}
+
+@MainActor
+private func makeClientWorkspace(status: RemoteConnectivityTracker.Status, backend: FakeBackend = FakeBackend()) -> (MeetingWorkspaceController, URL) {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let cacheRoot = root.appendingPathComponent("cache", isDirectory: true)
+    let outboxRoot = root.appendingPathComponent("outbox", isDirectory: true)
+    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
+    configuration.configureRemote(host: "mini", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
+    let remoteStore = RemoteMeetingStore(launcher: CommandLauncher(configuration: configuration), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    let tracker = RemoteConnectivityTracker()
+    switch status {
+    case .connected: tracker.noteSuccess()
+    case .disconnected: tracker.noteFailure(.launchFailed)
+    case .versionMismatch: tracker.noteFailure(.remoteUpdateRequired)
+    }
+    let controller = MeetingWorkspaceController(store: remoteStore, capture: NoopCapture(), backend: backend, connectivityTracker: tracker)
+    return (controller, root)
+}
+
+@Test @MainActor
+func aDisconnectedClientBlocksARemoteWriteAttemptAtCallTimeWithoutRunningIt() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    #expect(controller.connectionStatus == .disconnected)
+
+    // No record is even selected (the store is empty) - guardRemoteWrite must
+    // fire before any of runSummary's own preconditions get a chance to.
+    await controller.runSummary()
+
+    #expect(backend.summaryRequests.isEmpty)
+    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
+}
+
+@Test @MainActor
+func aVersionMismatchBlocksARemoteWriteAttemptWithADistinctMessage() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .versionMismatch, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    #expect(controller.connectionStatus == .versionMismatch)
+
+    await controller.runSummary()
+
+    #expect(backend.summaryRequests.isEmpty)
+    #expect(controller.recoveryAction == Loc.tr("The Mac mini needs a Damso update before this can run."))
+    #expect(controller.recoveryAction != Loc.tr("Available once connected to the Mac mini."))
+}
+
+@Test @MainActor
+func aConnectedClientNeverTripsTheRemoteWriteGuard() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .connected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    #expect(controller.connectionStatus == .connected)
+
+    await controller.runSummary()
+
+    // Falls through to runSummary's own "no selected record" no-op instead
+    // of the guard's blocked-write message.
+    #expect(controller.recoveryAction == nil)
+}
+
+// MARK: Two-machine retry (the "recording is broken" false alarm)
+
+/// A record in the steady state every recording reaches on a client: metadata
+/// mirrored into this Mac's cache, audio left on the server. Not an error
+/// condition - just what a completed handoff looks like from the laptop.
+@MainActor
+private func seedHandedOffRecord(_ controller: MeetingWorkspaceController, cacheRoot: URL) throws {
+    let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
+    var record = try cache.createRecord(MeetingDraft(stem: "local-handed-off", source: .local, title: "Handed off"))
+    record.stage = .transcribing
+    record.originalAudioFile = "microphone.caf"
+    try cache.commit(record)
+    try cache.update(record)
+    controller.refreshLibrary()
+    controller.select(stem: "local-handed-off")
+}
+
+@Test @MainActor
+func aClientRetryingAHandedOffRecordNeverClaimsItsAudioWentMissing() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .connected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try seedHandedOffRecord(controller, cacheRoot: root.appendingPathComponent("cache", isDirectory: true))
+
+    await controller.retrySelectedPhaseOne()
+
+    // The defect: this reported a perfectly intact recording as unreprocessable
+    // on every retry, because it looked for server-held audio in this Mac's
+    // metadata-only cache. Getting past that gate is the whole fix - the write
+    // that follows still needs a reachable server, which a unit test has not.
+    #expect(controller.state != .failed("recording_source_missing"))
+    #expect(controller.state != .failed("recording_not_transferred"))
+    #expect(controller.recoveryAction != Loc.tr("The original local audio is unavailable, so this meeting cannot be reprocessed."))
+}
+
+@Test @MainActor
+func aRecordingStillWaitingInTheOutboxSaysSoRatherThanFailingOnTheServer() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .connected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    // Outbox-only: captured here, never handed over. Its audio exists, but not
+    // where the server would look, so a retry must not be sent there at all.
+    let outbox = MeetingStore(root: root.appendingPathComponent("outbox", isDirectory: true), minimumFreeBytes: 0)
+    var record = try outbox.createRecord(MeetingDraft(stem: "local-pending", source: .local, title: "Pending"))
+    record.stage = .transcribing
+    record.originalAudioFile = "microphone.caf"
+    try outbox.commit(record)
+    try outbox.update(record)
+    controller.refreshLibrary()
+    controller.select(stem: "local-pending")
+
+    await controller.retrySelectedPhaseOne()
+
+    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
+    #expect(controller.state == .failed("recording_not_transferred"))
+}
+
+@Test @MainActor
+func aDisconnectedClientCannotStartAPhaseOneRetryAtAll() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try seedHandedOffRecord(controller, cacheRoot: root.appendingPathComponent("cache", isDirectory: true))
+
+    await controller.retrySelectedPhaseOne()
+
+    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
+    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
+}
+
+@Test @MainActor
+func aServerSweepsFarMoreOftenThanARecordingMacBecauseNothingElseTriggersIt() {
+    // On a combined Mac the sweep is a safety net - a finished recording starts
+    // its own processing. On a server it is the only signal that a handoff
+    // arrived, so the shared 10-minute cadence stranded fresh recordings for
+    // most of an interval.
+    let server = MeetingWorkspaceController.processingSweepInterval(for: .server)
+    let combined = MeetingWorkspaceController.processingSweepInterval(for: .combined)
+    let client = MeetingWorkspaceController.processingSweepInterval(for: .client)
+
+    #expect(server <= 60)
+    #expect(combined == 10 * 60)
+    #expect(client == combined)
+    #expect(server < combined)
 }

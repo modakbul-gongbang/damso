@@ -146,6 +146,47 @@ PYTHONPATH=backend python3 -m damso.migration restore --source /path/to/backup -
 PYTHONPATH=backend python3 -m damso.migration relocate-copy --source /path/to/canonical-store --target /path/to/new-root --confirm
 ```
 
+## Two-machine setup (server Mac)
+
+Optional. By default Damso does everything on one Mac; this section only applies if you want a second Mac you own to hold the canonical store and run processing while your laptop stays on detection, recording, and the UI. See the ADR at `docs/adr/0001-mac-mini-server-split.md` for why this shape was chosen.
+
+The server does not have to be a Mac mini - any always-on Mac works - but it does have to be **Apple Silicon**, because transcription runs on mlx-whisper and MLX is Apple Silicon only. It does not need Xcode, a git checkout, or a Python environment you build yourself: Settings copies the app bundle and the Python helper package there over SSH.
+
+### What you do by hand
+
+1. **Make SSH work.** Add your laptop's SSH key to the server and confirm `ssh <host>` connects from Terminal with no password prompt. An `~/.ssh/config` alias is the name you will type into Settings.
+2. **Install Homebrew Python and ffmpeg on the server**: `brew install python@3.12 ffmpeg`. Nothing else - Damso builds its own virtualenv at `~/Library/Application Support/Damso/server-venv` from that interpreter and installs its pinned dependencies into it, because Homebrew's Python is PEP 668 externally-managed and cannot be `pip install`ed into directly. (Model setup adapts to this: it only passes `pip install --user` on a base interpreter, since pip rejects that flag inside a virtualenv.)
+3. **Move the store before ever launching Damso on the server.** A Damso instance with no store configured creates an empty default one on first launch, which would collide with the store you are about to copy in. Copy the whole store root with a plain recursive copy, never `damso.migration` (that tool is for backup/restore/relocation snapshots, not a live store move). This step stays manual on purpose: it moves gigabytes of real meeting data and its ordering matters.
+   ```sh
+   rsync -a "$HOME/Library/Application Support/Damso/" <host>:"Library/Application\ Support/Damso/"
+   ```
+   The remote path needs backslash-escaped spaces; macOS's bundled openrsync fails with "server receiver mode requires two argument" without them. Verify the transfer with a locale-independent file-list diff before trusting it - `find` piped through `sort` uses the interactive shell's locale over SSH, which can order names differently machine to machine even when nothing is missing:
+   ```sh
+   diff <(ssh <host> 'find "Library/Application Support/Damso" -type f | LC_ALL=C sort') \
+        <(find "$HOME/Library/Application Support/Damso" -type f | LC_ALL=C sort)
+   ```
+
+### What Settings does for you
+
+4. Open Damso Settings → **Server Mac**, turn on **Use another Mac for storage and processing**, type the SSH host, and press **Check**. Preflight reports one line per requirement: SSH connection (and that the server is Apple Silicon), Python, ffmpeg, the canonical store, the processing environment, local models, the Damso app, and the background service. Anything you have to fix yourself comes with the command to run.
+5. Press **Set up this Mac**. It copies the Python helper package out of this app's bundle, builds a virtualenv at `~/Library/Application Support/Damso/server-venv`, installs the pinned local-processing dependencies, downloads the Whisper and Sherpa models, rsyncs this Mac's own signed `Damso.app` to the server, and writes plus loads the `com.yansfil.damso.server` LaunchAgent. Expect this to take a while: the models alone are over a gigabyte.
+6. Press **Save and use this Mac**, then reopen Damso - the store is chosen once at launch.
+
+The **Advanced** disclosure holds the interpreter and store root paths. Setup fills them in; change them only to point at an environment you built yourself, in which case preflight validates what you supplied instead of provisioning over it.
+
+### Why the server is launched the way it is
+
+The LaunchAgent runs `~/Applications/Damso.app/Contents/MacOS/Damso` with two arguments, and both matter. `--server-role` keeps that instance off meeting detection, the microphone, screen recording, and Apple Events - it only runs `damso.serve` and its own local processing sweep. `--local-python=<absolute path>` is what the sweep spawns its `damso.processing`/`damso.summary` subprocesses with: those run as *local* subprocesses on the server, not over ssh, and a bare `python3` is not reliably resolvable there - a `brew install python@<version>` formula deliberately does not symlink a generic `python3`, so PATH falls through to the system Python, which has none of the processing dependencies. Verified live: this silently failed every sweep-triggered phase-one run until the argument was added.
+
+Registering the agent also stops any server instance that launchd does not manage. A server started by hand with `open -a` is invisible to `launchctl bootout`, so bootstrapping around it would leave two servers sweeping the same store.
+
+Two things about that registration are load-bearing, both found by running it against a real machine. `launchctl bootstrap` from a non-GUI context such as an SSH session leaves the job pended (`pended nondemand spawn = speculative`) rather than starting it, even with `RunAtLoad` set, so setup follows it with `launchctl kickstart`. And it then waits for the job to actually report `state = running` before calling the step done - checking only that the job is registered reports a healthy server that has run zero times and written no log.
+
+### Afterwards
+
+7. **Point your MCP client at the server.** If you use `search_meetings`/`get_meeting`/etc. from an MCP client, see [Remote (two-machine setup)](README.md#remote-two-machine-setup) in the README to swap the server command for `scripts/mcp-remote.sh`.
+8. **Confirm ordinary use still works end to end**: record on the laptop, confirm speakers, and check that the summary and title appear - all reads and writes should route through the server transparently. `make verify-static` and `make test` must pass on both machines independently after any code change.
+
 ## Sample data and public repository hygiene
 
 Keep recordings, transcripts, voice embeddings, speaker profiles, Plaud profile data, session values, diagnostics exports, and local virtual environments outside Git.

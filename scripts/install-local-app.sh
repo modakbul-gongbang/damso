@@ -21,7 +21,40 @@ resources="$contents/Resources"
 mkdir -p "$resources"
 module_bundle="$(swift build --show-bin-path)/Damso_Damso.bundle"
 if [[ -d "$module_bundle" ]]; then
+  # SwiftPM's generated `Bundle.module` accessor looks in exactly two places:
+  # Bundle.main.bundleURL/Damso_Damso.bundle - the .app's own top level, NOT
+  # Contents/Resources - and, failing that, the absolute .build path of the
+  # machine that compiled it. Installing only into Contents/Resources
+  # therefore never satisfied the first candidate, and every installed app
+  # was silently resolving its strings through the second: the developer's
+  # working copy. That works until the app is run anywhere else - copying a
+  # built bundle to another Mac crashed it on launch with "could not load
+  # resource bundle" - and would equally break by deleting .build here.
+  # Contents/Resources is the only place a .app may carry it: codesign rejects
+  # anything else at the bundle root ("unsealed contents present in the bundle
+  # root"). `Localization` therefore resolves the catalog itself rather than
+  # through SwiftPM's `Bundle.module`, which looks only at the bundle root and
+  # at the build machine's absolute .build path.
   cp -R "$module_bundle" "$resources/"
+fi
+
+# The Python helper package's source rides inside the bundle so Settings can
+# provision a server Mac over SSH without a git checkout or Xcode there
+# (RemoteSetupService reads it from Contents/Resources/server-src). Source
+# only, about 800KB: never models, a virtualenv, or build metadata. The layout
+# has to mirror the repository root because pyproject.toml declares
+# package-dir = {"" = "backend"}.
+server_src="$resources/server-src"
+# The bundled rsync (2.6.9) does not create missing parent directories for its
+# destination, so the full path has to exist before the copy.
+mkdir -p "$server_src/backend/damso"
+rsync -a --delete \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  "$repo_root/backend/damso/" "$server_src/backend/damso/"
+cp "$repo_root/pyproject.toml" "$server_src/pyproject.toml"
+if [[ -f "$repo_root/requirements-local.txt" ]]; then
+  cp "$repo_root/requirements-local.txt" "$server_src/requirements-local.txt"
 fi
 
 # Generate the token-drawn app icon from the binary itself so the bundle icon

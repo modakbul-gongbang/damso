@@ -72,10 +72,13 @@ struct DesignReviewWindow: View {
             .hidden()
         }
         .task {
+            // The sweep itself (refresh + resume) no longer needs the main
+            // window: it runs at app launch and on a periodic timer instead
+            // (R8/AC10/T9), so a menu-bar-resident instance that never opens
+            // this window still processes its backlog. Opening the window
+            // still refreshes what it shows immediately rather than waiting
+            // for the next timer tick.
             workspace.refreshLibrary()
-            workspace.resumeInterruptedImportedProcessing()
-            workspace.resumeUnprocessedLocalRecordings()
-            await workspace.resumeInterruptedSummaries()
         }
         .sheet(isPresented: $isHintEditorPresented) { hintsEditor }
         .sheet(isPresented: $isCorrectionPresented) { correctionEditor }
@@ -158,6 +161,7 @@ struct DesignReviewWindow: View {
                     if selectedPersonID == nil { selectedPersonID = workspace.people.first?.id }
                 }
             }
+            remoteConnectionSection
             Section(Loc.tr("External Sync")) {
                 ForEach(externalSync.providerStates) { provider in
                     ExternalSyncProviderRow(
@@ -171,21 +175,19 @@ struct DesignReviewWindow: View {
         .navigationTitle("Damso")
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 10) {
+            // One card: the pre-recording plan and the Record button belong to
+            // the same action, so they share a single container instead of
+            // floating as separate boxes.
+            VStack(alignment: .leading, spacing: 10) {
                 if !workspace.isRecording && !workspace.isCaptureStartPending {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SpeakerCountStepper(count: $workspace.plannedSpeakerCount)
-                        ParticipantPlanField(
-                            participants: $workspace.plannedParticipants,
-                            knownPeople: workspace.people.map { $0.name }
-                        )
-                    }
-                    .padding(10)
-                    .background(DamsoTokens.canvas, in: RoundedRectangle(cornerRadius: DamsoTokens.compactRadius))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DamsoTokens.compactRadius)
-                            .strokeBorder(DamsoTokens.hairline)
+                    SpeakerCountStepper(count: $workspace.plannedSpeakerCount)
+                    ParticipantPlanField(
+                        participants: $workspace.plannedParticipants,
+                        knownPeople: workspace.people.map { $0.name }
                     )
+                    Rectangle()
+                        .fill(DamsoTokens.hairline)
+                        .frame(height: 1)
                 }
                 RecordHeroButton(
                     isRecording: workspace.isRecording,
@@ -193,11 +195,57 @@ struct DesignReviewWindow: View {
                 ) {
                     Task { await workspace.performPrimaryAction() }
                 }
+                .frame(maxWidth: .infinity)
                 .accessibilityLabel(workspace.isRecording ? Loc.tr("Stop recording") : Loc.tr("Record now"))
                 .accessibilityIdentifier("damso.primary-record-action")
                 .accessibilityHint(workspace.isRecording ? Loc.tr("Stops the current recording and starts local processing") : Loc.tr("Starts a recording. Set the expected speaker count above first for the most reliable speaker separation."))
             }
+            .padding(10)
+            .background(DamsoTokens.canvas, in: RoundedRectangle(cornerRadius: DamsoTokens.compactRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: DamsoTokens.compactRadius)
+                    .strokeBorder(DamsoTokens.hairline)
+            )
             .padding(12)
+        }
+    }
+
+    /// R9(a)/(b)/(d): nothing renders here at all on a local/combined store
+    /// (`connectionStatus` is nil), or on a remote store that is connected
+    /// with an empty outbox - the normal case stays free of any persistent
+    /// connection chrome (AC7). Only a degraded status or a non-zero outbox
+    /// count earns a row.
+    @ViewBuilder
+    private var remoteConnectionSection: some View {
+        if let status = workspace.connectionStatus, status != .connected || workspace.outboxPendingCount > 0 {
+            Section {
+                if status != .connected {
+                    Label(connectionStatusMessage(status), systemImage: connectionStatusSystemImage(status))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if workspace.outboxPendingCount > 0 {
+                    Label(String(format: Loc.tr("%d pending upload(s)"), workspace.outboxPendingCount), systemImage: "arrow.up.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func connectionStatusMessage(_ status: RemoteConnectivityTracker.Status) -> String {
+        switch status {
+        case .connected: ""
+        case .disconnected: Loc.tr("Not connected to the Mac mini")
+        case .versionMismatch: Loc.tr("Mac mini needs an update")
+        }
+    }
+
+    private func connectionStatusSystemImage(_ status: RemoteConnectivityTracker.Status) -> String {
+        switch status {
+        case .connected: "checkmark.circle"
+        case .disconnected: "wifi.slash"
+        case .versionMismatch: "exclamationmark.arrow.triangle.2.circlepath"
         }
     }
 
@@ -297,6 +345,9 @@ struct DesignReviewWindow: View {
                 .fill(isSelected ? DamsoTokens.accentFocusFill : Color.clear)
         )
         .contextMenu {
+            Button(Loc.tr("Copy summary"), systemImage: "doc.on.doc") {
+                copyMeetingSummary(record)
+            }
             if dismissable {
                 Button(Loc.tr("Hide from Needs your action"), systemImage: "eye.slash") {
                     dismissedActionStems.insert(record.stem)
@@ -310,6 +361,35 @@ struct DesignReviewWindow: View {
                 pendingDelete = record
             }
         }
+    }
+
+    /// Copies a shareable text block for pasting into Slack/Notion/etc: the
+    /// meeting metadata (title, date, participants) followed by the summary.
+    /// Silent on missing pieces, matching how the detail pane already treats
+    /// an unresolved summary as optional.
+    private func copyMeetingSummary(_ record: MeetingRecord) {
+        var lines = [meetingDisplayTitle(record), record.createdAt.formatted(date: .complete, time: .shortened)]
+        let participants = participantNames(record)
+        if !participants.isEmpty {
+            lines.append(String(format: Loc.tr("Participants: %@"), participants.joined(separator: ", ")))
+        }
+        if let summary = record.corrections?.summary ?? record.summary {
+            lines.append("")
+            lines.append(summary.oneLine)
+            if !summary.keyDiscussion.isEmpty {
+                lines.append("")
+                lines.append(Loc.tr("Key points"))
+                lines.append(contentsOf: summary.keyDiscussion.map { "- \($0)" })
+            }
+            if !summary.actionItems.isEmpty {
+                lines.append("")
+                lines.append(Loc.tr("Action items"))
+                lines.append(contentsOf: summary.actionItems.map { "- \($0)" })
+            }
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     private func meetingSectionHeader(_ title: String, count: Int) -> some View {
@@ -964,7 +1044,12 @@ struct DesignReviewWindow: View {
                 // Native formats load immediately; ogg/opus first go through
                 // the one-time local ffmpeg transcode cache.
                 audioPlayer.load(workspace.playbackAudioURL(for: record))
-                if workspace.playbackAudioURL(for: record) == nil, workspace.sourceAudioURL(for: record) != nil {
+                // Not yet playable locally either because a transcode is
+                // pending, or - remote store - the audio has not been
+                // fetched from the mini yet (R4); preparePlayableAudio
+                // covers both, gated only on the record actually having an
+                // audio file to look for.
+                if workspace.playbackAudioURL(for: record) == nil, record.processedAudioFile != nil || record.originalAudioFile != nil {
                     let prepared = await workspace.preparePlayableAudio(for: record)
                     if let prepared, workspace.selectedRecord?.stem == record.stem {
                         audioPlayer.load(prepared)
@@ -1676,6 +1761,7 @@ struct DesignReviewWindow: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(summary.oneLine)
                         .font(.title3.weight(.semibold))
+                        .textSelection(.enabled)
                     if !summary.keyDiscussion.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(Loc.tr("Key points"))
@@ -1683,6 +1769,7 @@ struct DesignReviewWindow: View {
                                 .textCase(.uppercase)
                             ForEach(summary.keyDiscussion, id: \.self) { point in
                                 Label(point, systemImage: "text.bullet")
+                                    .textSelection(.enabled)
                             }
                         }
                     }

@@ -17,25 +17,27 @@ enum LocalIndexCommandError: Error, Equatable {
 enum LocalIndexProcessRunner {
     private static let maximumResponseBytes = 64 * 1_024
 
-    static func rebuild(storeRoot: String, pythonExecutable: String = "python3") throws -> LocalIndexResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [pythonExecutable, "-m", "damso.index", "--store", storeRoot]
-        process.environment = ProcessRuntime.environment()
-        let standardOutput = Pipe()
-        process.standardOutput = standardOutput
-        process.standardError = Pipe()
+    static func rebuild(storeRoot: String, pythonExecutable: String = "python3", launcher: CommandLauncher = CommandLauncher()) throws -> LocalIndexResult {
+        let argv: [String]
+        switch launcher.configuration.mode {
+        case .local:
+            argv = [pythonExecutable, "-m", "damso.index", "--store", storeRoot]
+        case .remote:
+            argv = launcher.argv(module: "damso.index", moduleArguments: ["--store", storeRoot])
+        }
+
+        let output: CommandLauncherOutput
         do {
-            try process.run()
+            output = try launcher.run(argv: argv, maximumResponseBytes: maximumResponseBytes)
+        } catch CommandLauncherError.oversizedResponse {
+            throw LocalIndexCommandError.failed
         } catch {
             throw LocalIndexCommandError.launchFailed
         }
-        process.waitUntilExit()
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        guard output.count <= maximumResponseBytes, process.terminationStatus == 0 else {
+        guard output.terminationStatus == 0 else {
             throw LocalIndexCommandError.failed
         }
-        guard let result = try? JSONDecoder().decode(LocalIndexResult.self, from: output), result.ok else {
+        guard let result = try? JSONDecoder().decode(LocalIndexResult.self, from: output.data), result.ok else {
             throw LocalIndexCommandError.invalidResponse
         }
         return result

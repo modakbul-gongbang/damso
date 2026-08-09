@@ -102,7 +102,11 @@ final class ExternalSyncController: ObservableObject {
         self.providers = providers
         self.notifier = notifier
         self.defaults = defaults
-        let store = workspace.meetingStore
+        guard let store = workspace.meetingStore else {
+            // Remote-mode clients don't own the canonical store locally;
+            // leave providerStates/engines empty so sync stays a no-op.
+            return
+        }
         providerStates = providers.map { provider in
             var state = ProviderViewState(id: provider.id, displayName: provider.displayName)
             state.syncEnabled = defaults.object(forKey: Self.enabledKey(provider.id)) as? Bool ?? true

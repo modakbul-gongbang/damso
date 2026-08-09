@@ -22,7 +22,11 @@ final class DamsoRuntime: ObservableObject {
         notificationRouter.workspace = workspace
         notificationRouter.attach()
         MeetingParticipantCaptureWiring.attach(to: detection)
-        detection.startMonitoring()
+        // R13/T14: the mini's server role never watches the mic or browser
+        // tabs, so it never triggers the TCC prompts detection would cause.
+        if workspace.role.detectsAndRecords {
+            detection.startMonitoring()
+        }
         externalSync.start()
         // Verification-only simulation (V7): inject a synthetic detected
         // meeting for ~20s, then let it end so the prompt-dismiss grace can

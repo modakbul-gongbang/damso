@@ -71,30 +71,28 @@ enum LocalModelSetupState: Equatable {
 }
 
 enum LocalModelSetupProcessRunner {
-    static func run(_ command: LocalModelSetupCommand) -> LocalModelSetupResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command.arguments
+    private static let unavailable = LocalModelSetupResult(ok: false, whisperReady: nil, sherpaReady: nil, errorCode: "model_setup_unavailable")
+
+    static func run(_ command: LocalModelSetupCommand, launcher: CommandLauncher = CommandLauncher()) -> LocalModelSetupResult {
+        let argv: [String]
+        switch launcher.configuration.mode {
+        case .local:
+            argv = command.arguments
+        case .remote:
+            argv = launcher.argv(module: "damso.model_setup", moduleArguments: Array(command.arguments.dropFirst(3)))
+        }
         let inherited = ProcessInfo.processInfo.environment
-        process.environment = [
+        let environment = [
             "HOME": inherited["HOME"] ?? NSHomeDirectory(),
             "LANG": inherited["LANG"] ?? "en_US.UTF-8",
             "PATH": inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
         ]
 
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
         do {
-            try process.run()
-            process.waitUntilExit()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            if let result = try? JSONDecoder().decode(LocalModelSetupResult.self, from: data) {
-                return result
-            }
-            return LocalModelSetupResult(ok: false, whisperReady: nil, sherpaReady: nil, errorCode: "model_setup_unavailable")
+            let output = try launcher.run(argv: argv, environment: environment, maximumResponseBytes: 64 * 1_024)
+            return (try? JSONDecoder().decode(LocalModelSetupResult.self, from: output.data)) ?? unavailable
         } catch {
-            return LocalModelSetupResult(ok: false, whisperReady: nil, sherpaReady: nil, errorCode: "model_setup_unavailable")
+            return unavailable
         }
     }
 }

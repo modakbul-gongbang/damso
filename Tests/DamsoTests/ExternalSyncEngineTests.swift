@@ -436,6 +436,35 @@ func interruptedImportedProcessingResumesOnLaunch() async throws {
     #expect(try store.load(stem: "fakeprov-interrupted").stage == .speakerReview)
 }
 
+/// Regression guard for D-08/R8/AC10: a crash between committing an imported
+/// download and ever calling `processImportedMeeting` leaves the record in
+/// `.captured`, one stage earlier than `.queued` above - the gap the launch
+/// sweep's filter used to miss entirely before `.captured` was added to it.
+@Test @MainActor
+func interruptedImportedProcessingResumesACapturedRecordTooNotJustQueued() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = MeetingStore(root: root, minimumFreeBytes: 0)
+    var record = try store.createRecord(MeetingDraft(stem: "fakeprov-captured", source: .plaud, title: ""))
+    record.stage = .captured
+    record.originalAudioFile = "recording.caf"
+    try store.commit(record, artifacts: ["recording.caf": Data("audio".utf8)])
+
+    let backend = SyncFakeBackend()
+    let workspace = MeetingWorkspaceController(store: store, capture: SyncNoopCapture(), backend: backend)
+    workspace.refreshLibrary()
+    workspace.resumeInterruptedImportedProcessing()
+
+    for _ in 0..<50 where backend.phaseOneRequests.isEmpty {
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    #expect(backend.phaseOneRequests.count == 1)
+    for _ in 0..<50 where (try? store.load(stem: "fakeprov-captured"))?.stage != .speakerReview {
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    #expect(try store.load(stem: "fakeprov-captured").stage == .speakerReview)
+}
+
 @Test @MainActor
 func unplayableDownloadIsDiscardedAndNeverAppearsInTheMeetingList() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -90,7 +90,7 @@ enum LocalSummaryCommandError: Error, Equatable {
 enum LocalSummaryProcessRunner {
     private static let maximumResponseBytes = 64 * 1_024
 
-    static func run(_ request: LocalSummaryRequest, command: LocalSummaryCommand = .init()) throws -> LocalSummaryResult {
+    static func run(_ request: LocalSummaryRequest, command: LocalSummaryCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalSummaryResult {
         let input: Data
         do {
             input = try JSONEncoder().encode(request)
@@ -98,32 +98,27 @@ enum LocalSummaryProcessRunner {
             throw LocalSummaryCommandError.requestEncoding
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command.arguments
-        process.environment = ProcessRuntime.environment()
-        let standardInput = Pipe()
-        let standardOutput = Pipe()
-        process.standardInput = standardInput
-        process.standardOutput = standardOutput
-        process.standardError = Pipe()
+        let argv: [String]
+        switch launcher.configuration.mode {
+        case .local:
+            argv = command.arguments
+        case .remote:
+            argv = launcher.argv(module: "damso.summary", moduleArguments: ["--request", "-"])
+        }
+
+        let output: CommandLauncherOutput
         do {
-            try process.run()
+            output = try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
+        } catch CommandLauncherError.oversizedResponse {
+            throw LocalSummaryCommandError.oversizedResponse
         } catch {
             throw LocalSummaryCommandError.launchFailed
         }
-        standardInput.fileHandleForWriting.write(input)
-        try? standardInput.fileHandleForWriting.close()
-        process.waitUntilExit()
 
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        guard output.count <= maximumResponseBytes else {
-            throw LocalSummaryCommandError.oversizedResponse
-        }
-        guard process.terminationStatus == 0 else {
+        guard output.terminationStatus == 0 else {
             throw LocalSummaryCommandError.failed
         }
-        guard let result = try? JSONDecoder().decode(LocalSummaryResult.self, from: output) else {
+        guard let result = try? JSONDecoder().decode(LocalSummaryResult.self, from: output.data) else {
             throw LocalSummaryCommandError.invalidResponse
         }
         return result

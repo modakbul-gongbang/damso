@@ -63,7 +63,13 @@ struct CanonicalStoreLayout {
     }
 }
 
-final class MeetingStore {
+/// `@unchecked`: every stored property is immutable after `init` and file
+/// I/O is stateless per call (no shared mutable buffer), so concurrent use
+/// from different tasks is safe even though `JSONEncoder`/`JSONDecoder`
+/// aren't themselves `Sendable`-annotated. Needed so `RemoteMeetingStore`
+/// can hold both a cache- and outbox-rooted instance and call across actor
+/// boundaries (`Task.detached` inside its rsync helpers).
+final class MeetingStore: @unchecked Sendable {
     static let defaultRoot: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Damso", isDirectory: true)
 
@@ -353,17 +359,29 @@ final class MeetingStore {
     /// corrections, and unrelated meeting metadata are deliberately outside
     /// this fixed allowlist.
     func invalidatePhaseOneDependents(stem: String) throws {
-        guard isSafeStem(stem) else { throw MeetingStoreError.invalidStem }
-        let directory = layout.recordDirectory(stem: stem)
-        guard fileManager.fileExists(atPath: directory.path) else { throw MeetingStoreError.missingRecord }
-        let artifactNames = [
+        try removeArtifacts(stem: stem, names: [
             "resolutions.yaml",
             "transcript.json",
             "summary.json",
             "transcript.cleaned.json",
             "speaker_hints.json",
             "transcript.md",
-        ]
+        ])
+    }
+
+    /// Removes only the index-keyed cleanup overlay. recluster rewrites the
+    /// transcript with a new segmentation but keeps its raw evidence, so the
+    /// overlay is the one phase-one dependent it must clear to let a fresh
+    /// cleanup pass run against the new transcript.
+    func invalidateCleanupOverlay(stem: String) throws {
+        try removeArtifacts(stem: stem, names: ["transcript.cleaned.json"])
+    }
+
+    private func removeArtifacts(stem: String, names: [String]) throws {
+        guard isSafeStem(stem) else { throw MeetingStoreError.invalidStem }
+        let directory = layout.recordDirectory(stem: stem)
+        guard fileManager.fileExists(atPath: directory.path) else { throw MeetingStoreError.missingRecord }
+        let artifactNames = names
 
         for name in artifactNames {
             let artifact = directory.appendingPathComponent(name)
