@@ -101,8 +101,22 @@ def install(
     return result
 
 
+def running_inside_virtualenv() -> bool:
+    """True when sys.executable belongs to a venv rather than a base install."""
+    return sys.prefix != sys.base_prefix
+
+
 def install_python_dependencies(command_runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
-    command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--user", *PYTHON_DEPENDENCIES]
+    command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"]
+    # `--user` keeps a system-Python install out of site-packages, but pip
+    # refuses it outright inside a virtualenv ("User site-packages are not
+    # visible in this virtualenv") - and there it is pointless anyway, since
+    # the venv is already the isolation `--user` was approximating. A server
+    # Mac provisioned from Settings runs entirely out of such a venv, so
+    # keeping the flag unconditional failed every install there immediately.
+    if not running_inside_virtualenv():
+        command.append("--user")
+    command.extend(PYTHON_DEPENDENCIES)
     completed = command_runner(command, check=False, capture_output=True, text=True)
     if completed.returncode != 0:
         raise ModelSetupError("local_processing_dependency_install_failed")

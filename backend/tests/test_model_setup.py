@@ -3,6 +3,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from damso import model_setup
@@ -67,6 +68,27 @@ class ModelSetupTests(unittest.TestCase):
         self.assertEqual(downloaded, [model_setup.WHISPER_REPOSITORY])
         self.assertEqual(commands[0][-len(model_setup.PYTHON_DEPENDENCIES):], list(model_setup.PYTHON_DEPENDENCIES))
         self.assertNotIn("audio", " ".join(commands[0]).lower())
+
+    def test_dependency_install_drops_user_flag_inside_a_virtualenv(self):
+        commands = []
+
+        def runner(command, **_):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        # pip refuses `--user` outright inside a virtualenv ("User site-packages
+        # are not visible in this virtualenv"), which failed every install on a
+        # server Mac provisioned from Settings, since that runs out of a venv.
+        with unittest.mock.patch.object(model_setup, "running_inside_virtualenv", return_value=True):
+            model_setup.install_python_dependencies(runner)
+        self.assertNotIn("--user", commands[0])
+        self.assertEqual(commands[0][-len(model_setup.PYTHON_DEPENDENCIES):], list(model_setup.PYTHON_DEPENDENCIES))
+
+        # A base interpreter still gets it, so a single-machine install never
+        # writes into system site-packages.
+        with unittest.mock.patch.object(model_setup, "running_inside_virtualenv", return_value=False):
+            model_setup.install_python_dependencies(runner)
+        self.assertIn("--user", commands[1])
 
     def test_archive_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as temporary:
