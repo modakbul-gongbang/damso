@@ -142,6 +142,11 @@ struct MeetingPanelCardView: View {
     /// button on the menu-bar idle card. The floating detection panel leaves
     /// this nil, so the stepper appears only where a manual recording begins.
     var speakerCount: Binding<Int>?
+    /// Optional participant-name plan, paired with `speakerCount` on the
+    /// menu-bar idle card. Names picked here prefill the speaker count and
+    /// feed the transcription hint, same as the main window's plan field.
+    var participants: Binding<[String]>?
+    var knownPeople: [String] = []
 
     @State private var pairing = MeetingPanelPairingStatus.checking
 
@@ -201,6 +206,9 @@ struct MeetingPanelCardView: View {
         VStack(alignment: .leading, spacing: DamsoTokens.spacingSM) {
             if let speakerCount {
                 SpeakerCountStepper(count: speakerCount)
+            }
+            if let participants {
+                ParticipantPlanField(participants: participants, knownPeople: knownPeople)
             }
             Button {
                 actions.record()

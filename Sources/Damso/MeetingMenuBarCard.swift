@@ -30,10 +30,12 @@ struct MeetingMenuBarCard: View {
                     openWindow(id: "main")
                     openMainWindow()
                 },
-                // Only offer the count on the manual idle card (no live
+                // Only offer the plan on the manual idle card (no live
                 // detection session); a detection-driven start keeps its own
                 // fast path.
-                speakerCount: panelModel.phase == nil ? $workspace.plannedSpeakerCount : nil
+                speakerCount: panelModel.phase == nil ? $workspace.plannedSpeakerCount : nil,
+                participants: panelModel.phase == nil ? $workspace.plannedParticipants : nil,
+                knownPeople: workspace.people.map { $0.name }
             )
             footer
         }

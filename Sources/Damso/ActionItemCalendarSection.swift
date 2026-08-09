@@ -71,8 +71,10 @@ struct ActionItemCalendarSection: View {
                             .labelsHidden()
                     }
                     Text(action.displayText)
+                        .textSelection(.enabled)
                 } else {
                     Label(action.displayText, systemImage: "checkmark.circle")
+                        .textSelection(.enabled)
                 }
             }
             if let candidate, let failure = controller.failures[candidate.id],
