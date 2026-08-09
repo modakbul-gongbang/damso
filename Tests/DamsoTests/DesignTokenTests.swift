@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Damso
 
@@ -32,4 +33,23 @@ func editorialFrameIsMonochrome() {
             #expect(spread < 0.03)
         }
     }
+}
+
+// MARK: Localization catalog resolution
+
+@Test
+func theStringCatalogResolvesFromTheAppsOwnLayoutRatherThanTheBuildMachinesPath() throws {
+    // SwiftPM's `Bundle.module` looks only at the bundle root and at the
+    // absolute .build path of whoever compiled the binary, then fatalErrors.
+    // An installed app was silently reading strings out of the developer's
+    // working copy and crashed on launch anywhere else - copied to another
+    // Mac, or after .build was deleted.
+    let url = try #require(Loc.catalogURL(), "the string catalog must be discoverable")
+    #expect(FileManager.default.fileExists(atPath: url.path))
+    #expect(url.lastPathComponent == "Localizable.xcstrings")
+
+    // A real translation proves the catalog was parsed, not merely located.
+    #expect(Loc.tr("Retry", language: .korean) == "재시도")
+    // A missing key degrades to itself instead of crashing.
+    #expect(Loc.tr("__no_such_key__", language: .korean) == "__no_such_key__")
 }

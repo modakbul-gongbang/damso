@@ -42,8 +42,48 @@ enum Loc {
         return key
     }
 
+    /// Deliberately not `Bundle.module`. SwiftPM generates that accessor to
+    /// check exactly two locations - the main bundle's *root* (never
+    /// `Contents/Resources`, where a signed `.app` is the only place codesign
+    /// permits it) and the absolute `.build` path of the machine that
+    /// compiled the binary - and to `fatalError` when neither exists. An
+    /// installed app was therefore reading its strings out of the developer's
+    /// working copy, and crashed on launch the moment it ran anywhere else:
+    /// copied to another Mac, or simply after `.build` was deleted.
+    ///
+    /// Resolving it here instead covers the installed-app layout, a plain
+    /// `swift run`, and the test runner, and a miss degrades to the English
+    /// keys (see `tr`) rather than taking the process down.
+    private final class BundleFinder {}
+
+    static func catalogURL() -> URL? {
+        let fileName = "Localizable.xcstrings"
+        let finder = Bundle(for: BundleFinder.self)
+        let roots = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL,
+            finder.resourceURL,
+            finder.bundleURL,
+            finder.bundleURL.deletingLastPathComponent(),
+        ].compactMap { $0 }
+
+        for root in roots {
+            let inModuleBundle = root
+                .appendingPathComponent("Damso_Damso.bundle", isDirectory: true)
+                .appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: inModuleBundle.path) {
+                return inModuleBundle
+            }
+            let alongside = root.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: alongside.path) {
+                return alongside
+            }
+        }
+        return nil
+    }
+
     private static func loadCatalog() -> [String: [String: String]] {
-        guard let url = Bundle.module.url(forResource: "Localizable", withExtension: "xcstrings"),
+        guard let url = catalogURL(),
               let data = try? Data(contentsOf: url),
               let catalog = try? JSONDecoder().decode(Catalog.self, from: data) else {
             return [:]
