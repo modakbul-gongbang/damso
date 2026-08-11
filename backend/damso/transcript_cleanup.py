@@ -34,6 +34,62 @@ CLEANED_FILENAME = "transcript.cleaned.json"
 MAX_CORRECTIONS = 120
 MAX_CORRECTION_CHARS = 4_000
 
+
+def read_effective_transcript(recording_directory: Path) -> dict[str, Any] | None:
+    """The transcript a person actually sees in the app: the resolved base
+    transcript (`transcript.json`, or `transcript.raw.json` before speakers
+    are resolved) with any valid cleanup overlay's corrections applied on
+    top. Returns None when no transcript exists yet.
+
+    Every other reader of `transcript.cleaned.json` in this codebase is the
+    Swift client (`MeetingProcessingArtifacts.swift`); this is the first
+    Python-side consumer, so the generation-id staleness rule that guards
+    against painting corrections onto a re-clustered transcript's wrong
+    segments (see the module docstring) is reimplemented here rather than
+    shared, since the client has no Python equivalent to call into.
+    """
+    transcript_path = recording_directory / "transcript.json"
+    if not transcript_path.is_file():
+        transcript_path = recording_directory / "transcript.raw.json"
+    if not transcript_path.is_file():
+        return None
+    try:
+        transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(transcript, Mapping):
+        return None
+    transcript = dict(transcript)
+    segments = transcript.get("segments")
+    if not isinstance(segments, list):
+        return transcript
+
+    overlay_path = recording_directory / CLEANED_FILENAME
+    if not overlay_path.is_file():
+        return transcript
+    try:
+        overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return transcript
+    if not isinstance(overlay, Mapping) or overlay.get("generation_id") != transcript.get("generation_id"):
+        return transcript
+    corrections = overlay.get("corrections")
+    if not isinstance(corrections, list):
+        return transcript
+
+    corrected_segments = [dict(segment) if isinstance(segment, Mapping) else segment for segment in segments]
+    for correction in corrections:
+        if not isinstance(correction, Mapping):
+            continue
+        index = correction.get("index")
+        text = correction.get("text")
+        if not isinstance(index, int) or not isinstance(text, str):
+            continue
+        if 0 <= index < len(corrected_segments) and isinstance(corrected_segments[index], dict):
+            corrected_segments[index]["text"] = text
+    transcript["segments"] = corrected_segments
+    return transcript
+
 # Artifact cleanup is mechanical and benefits from the cheapest capable model.
 # None keeps the CLI's configured default (Codex has no stable small alias).
 CHEAP_MODELS: dict[str, str | None] = {"claude": "haiku", "codex": None}

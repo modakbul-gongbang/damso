@@ -104,10 +104,13 @@ plaud login              # opens your browser; Damso never touches the token
 
 ## MCP server
 
-The HTTP daemon serves MCP Streamable HTTP directly at `/mcp`, so a URL and (when remote) one header are the entire client configuration. There is no certificate to trust, no host alias to add, and no wrapper script to launch.
+The HTTP daemon serves MCP Streamable HTTP directly at `/mcp`, so a URL and (when remote) one header are the entire client configuration. There is no certificate to trust, no host alias to add, and no wrapper script to launch. Transcription and diarization run in their own subprocess rather than inside the daemon, so `/mcp` (and the rest of `/v1`) stays responsive while a meeting is processing instead of timing out for the length of the job.
 
-Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword)`. All are read-only; the endpoint exposes no write tool.
+Tools: `search_meetings(date, from, to, speaker, keyword, limit, offset)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword, limit, offset)`. All are read-only; the endpoint exposes no write tool. Every tool and parameter carries a full description in its schema, and `initialize` returns `instructions` explaining the search-then-read workflow, so a client that reads its own tool list should not need this section to use the server correctly - it's here for a human skimming the README.
 `search_meetings` and `search_people` match keywords through a local SQLite FTS5 index (trigram tokenizer, so Korean and English both work) and rank results by BM25 relevance; each result includes a `snippet` showing why it matched. Filtering by date or speaker alone still returns newest-first, unchanged from before.
+`get_meeting` returns the actual transcript (with any confirmed cleanup corrections already applied), not just metadata and the summary.
+`date` takes a year, year-month, or full date (`2026`, `2026-08`, `2026-08-11`); `from`/`to` filter an inclusive range instead and cannot be combined with `date`. Both `search_meetings` and `search_people` default to 20 results and cap at 100 via `limit`; `offset` pages past the first batch. A malformed date, an out-of-range `limit`/`offset`, or a `stem`/`name` that matches nothing comes back as an MCP tool error with an explanation, not a silent empty result.
+`get_speaker`'s `meetings` list is an exact match on the resolved participant identity; `search_meetings`'s `speaker` filter stays a loose substring match for browsing when you don't know the exact name.
 The index is rebuilt automatically by the app after each pipeline step, and automatically upgraded in place the first time an older index is opened after an update; rebuild manually anytime with `make reindex` or the Settings action.
 
 ### Connect a client

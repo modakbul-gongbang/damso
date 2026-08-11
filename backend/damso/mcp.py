@@ -9,13 +9,16 @@ fields are stable; new fields are only ever added, never renamed or removed.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping
 
 from .index import build_index, index_path, nfc, open_index
 from .people import read_profile
+from .transcript_cleanup import read_effective_transcript
 
 
 # Below this, the trigram tokenizer produces zero tokens for the query term
@@ -23,6 +26,13 @@ from .people import read_profile
 # zero rows regardless of what the index contains. search()/search_people()
 # fall back to a plain substring LIKE scan under this length instead.
 TRIGRAM_MINIMUM_LENGTH = 3
+
+# R8: search_meetings/search_people returned every match with no cap - a
+# store with years of meetings could return a response an AI client has to
+# read in full before it can do anything else. `limit` defaults small enough
+# to keep a single call cheap; `offset` lets a caller page through the rest.
+DEFAULT_SEARCH_LIMIT = 20
+MAX_SEARCH_LIMIT = 100
 
 
 # MCP revisions this server can speak. A client announces the revision it
@@ -37,33 +47,181 @@ class SearchBackendUnavailable(RuntimeError):
     """Raised when a keyword search is requested but the FTS5 trigram index could not be built."""
 
 
+class InvalidSearchArgument(ValueError):
+    """Raised when a search argument is well-formed JSON but not a value the
+    query can act on (R5) - a malformed `date` used to be silently treated as
+    a `LIKE` prefix that matched nothing, indistinguishable from "correctly
+    formatted but genuinely zero results"."""
+
+
+# `created_at` is matched with a `LIKE '{date}%'` prefix, so the only values
+# that can ever match anything are a year, a year-month, or a full date.
+DATE_ARGUMENT_SHAPE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
+
+
+def validate_date_argument(value: str | None, *, field: str) -> None:
+    """Shape alone (`\\d{4}(-\\d{2}(-\\d{2})?)?`) still lets "2026-13" or
+    "2026-02-30" through - real month/day bounds need an actual calendar
+    check, not just digit counting."""
+    if value is None:
+        return
+    if not DATE_ARGUMENT_SHAPE.match(value):
+        raise InvalidSearchArgument(f"{field} must be formatted YYYY, YYYY-MM, or YYYY-MM-DD (got {value!r})")
+    parts = value.split("-")
+    year = int(parts[0])
+    month = int(parts[1]) if len(parts) >= 2 else 1
+    day = int(parts[2]) if len(parts) >= 3 else 1
+    try:
+        dt.date(year, month, day)
+    except ValueError as error:
+        raise InvalidSearchArgument(f"{field} must be a valid calendar date (got {value!r})") from error
+
+
+def date_range_clauses(date: str | None, date_from: str | None, date_to: str | None) -> tuple[list[str], list[Any]]:
+    """R12: `date` stays a single-prefix filter (unchanged); `from`/`to` add
+    an inclusive range. Combining `date` with either is rejected rather than
+    given an implicit precedence rule a caller would have to guess at.
+    Comparing ISO-8601 strings lexicographically already equals chronological
+    order, and a shorter prefix always sorts before any longer string sharing
+    it - so a bare `>= date_from` is already an inclusive lower bound with no
+    date-arithmetic needed. The upper bound needs one trick: `<= date_to`
+    alone would exclude every timestamp within that day/month/year except an
+    exact prefix match, since "2026-07-14T09:00Z" sorts after "2026-07-14";
+    appending U+FFFF (the maximum codepoint) makes the prefix compare as
+    "the end of that day/month/year" instead.
+    """
+    validate_date_argument(date, field="date")
+    validate_date_argument(date_from, field="from")
+    validate_date_argument(date_to, field="to")
+    if date and (date_from or date_to):
+        raise InvalidSearchArgument("date cannot be combined with from/to - use date alone, or from/to for a range")
+    clauses: list[str] = []
+    parameters: list[Any] = []
+    if date:
+        clauses.append("m.created_at LIKE ?")
+        parameters.append(f"{date}%")
+    if date_from:
+        clauses.append("m.created_at >= ?")
+        parameters.append(date_from)
+    if date_to:
+        clauses.append("m.created_at <= ?")
+        parameters.append(date_to + "￿")
+    return clauses, parameters
+
+
+def resolve_pagination(limit: Any, offset: Any) -> tuple[int, int]:
+    resolved_limit = DEFAULT_SEARCH_LIMIT if limit is None else limit
+    if not isinstance(resolved_limit, int) or isinstance(resolved_limit, bool) or not (1 <= resolved_limit <= MAX_SEARCH_LIMIT):
+        raise InvalidSearchArgument(f"limit must be an integer from 1 to {MAX_SEARCH_LIMIT} (got {limit!r})")
+    resolved_offset = 0 if offset is None else offset
+    if not isinstance(resolved_offset, int) or isinstance(resolved_offset, bool) or resolved_offset < 0:
+        raise InvalidSearchArgument(f"offset must be a non-negative integer (got {offset!r})")
+    return resolved_limit, resolved_offset
+
+
 TOOL_DEFINITIONS = [
     {
         "name": "search_meetings",
-        "description": "Search local meetings by date, speaker or keyword. This tool never writes data.",
+        "description": (
+            "Search local meetings by date, date range, speaker, and/or keyword; combine any of them to "
+            "narrow the results. Returns metadata only (title, stem, createdAt, stage, ...) - call "
+            "get_meeting with a result's `stem` to read its summary and transcript. Results are newest-first "
+            "unless `keyword` is set, in which case they are ranked by keyword relevance and each item gets "
+            "a `snippet` showing the matched text. `speaker` matches loosely (a substring of the resolved "
+            "participant name) for browsing when you don't know the exact name - get_speaker's own `meetings` "
+            "list is the exact-match version for a specific, already-identified person."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "date": {"type": "string"},
-                "speaker": {"type": "string"},
-                "keyword": {"type": "string"},
+                "date": {
+                    "type": "string",
+                    "description": "Restrict to one year, month, or day: 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD'. Cannot be combined with from/to.",
+                },
+                "from": {
+                    "type": "string",
+                    "description": "Inclusive start of a date range, same format as `date`. Use with `to` for a range; omit `to` for open-ended.",
+                },
+                "to": {
+                    "type": "string",
+                    "description": "Inclusive end of a date range, same format as `date` (a whole year/month/day, not a timestamp). Use with `from` for a range; omit `from` for open-ended.",
+                },
+                "speaker": {
+                    "type": "string",
+                    "description": "Substring match against a resolved participant's name (case-insensitive). For browsing, not exact identification.",
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "Full-text keyword search over meeting titles, summaries, and transcripts. Ranked by relevance; each result includes a matching `snippet`. Works for Korean and English.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": f"Maximum results to return, {1}-{MAX_SEARCH_LIMIT}. Defaults to {DEFAULT_SEARCH_LIMIT}. If you get exactly `limit` results, there may be more - retry with a higher `offset`.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "How many matching results to skip before returning `limit` of them, for paging past the first page. Defaults to 0.",
+                },
             },
         },
+        "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
     },
     {
         "name": "get_meeting",
-        "description": "Get metadata, stored summary and transcript for one local meeting.",
-        "inputSchema": {"type": "object", "properties": {"stem": {"type": "string"}}, "required": ["stem"]},
+        "description": (
+            "Get the full detail of one specific local meeting: metadata, the stored summary, and the "
+            "complete transcript (with any confirmed text cleanup already applied). Requires `stem`, which "
+            "is not a title you type - it is the machine identifier a search_meetings result returns for "
+            "that meeting; find the meeting there first."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "stem": {"type": "string", "description": "A meeting identifier as returned by search_meetings, e.g. '2026-08-11T09-30-00Z_abcdef'."},
+            },
+            "required": ["stem"],
+        },
+        "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
     },
     {
         "name": "get_speaker",
-        "description": "Get one local speaker profile and that person's meeting history.",
-        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+        "description": (
+            "Get one local person's profile notes and the exact list of meetings they are credited in "
+            "(exact identity match, not a substring search - if you only have a partial or uncertain name, "
+            "call search_people first to find the right one)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The person's exact resolved name, case-insensitive (e.g. from a search_people or search_meetings result)."},
+            },
+            "required": ["name"],
+        },
+        "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
     },
     {
         "name": "search_people",
-        "description": "Search local people by name or profile notes. This tool never writes data.",
-        "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}, "required": ["keyword"]},
+        "description": (
+            "Search local people by name or by their free-text profile notes when you don't know someone's "
+            "exact name. Returns candidates with a relevance `snippet` - call get_speaker with a result's "
+            "`name` for that person's full profile and meeting history."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "Matched against the person's name and their profile Notes text. Works for Korean and English."},
+                "limit": {
+                    "type": "integer",
+                    "description": f"Maximum results to return, {1}-{MAX_SEARCH_LIMIT}. Defaults to {DEFAULT_SEARCH_LIMIT}. If you get exactly `limit` results, there may be more - retry with a higher `offset`.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "How many matching results to skip before returning `limit` of them, for paging past the first page. Defaults to 0.",
+                },
+            },
+            "required": ["keyword"],
+        },
+        "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
     },
 ]
 
@@ -94,26 +252,38 @@ class ReadOnlyStore:
     def connection(self):
         return open_index(self.root)
 
-    def search(self, date: str | None = None, speaker: str | None = None, keyword: str | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        date: str | None = None,
+        speaker: str | None = None,
+        keyword: str | None = None,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: Any = None,
+        offset: Any = None,
+    ) -> list[dict[str, Any]]:
+        resolved_limit, resolved_offset = resolve_pagination(limit, offset)
         if keyword:
-            return self._search_by_keyword(date, speaker, keyword)
-        return self._search_without_keyword(date, speaker)
+            return self._search_by_keyword(date, speaker, keyword, date_from, date_to, resolved_limit, resolved_offset)
+        return self._search_without_keyword(date, speaker, date_from, date_to, resolved_limit, resolved_offset)
 
-    def _search_without_keyword(self, date: str | None, speaker: str | None) -> list[dict[str, Any]]:
+    def _search_without_keyword(
+        self, date: str | None, speaker: str | None, date_from: str | None, date_to: str | None, limit: int, offset: int
+    ) -> list[dict[str, Any]]:
         query = ["SELECT m.* FROM meetings m"]
-        clauses: list[str] = []
         parameters: list[Any] = []
         if speaker:
             query.append(
                 "JOIN participants p ON p.stem = m.stem AND lower(p.person) LIKE ?"
             )
             parameters.append(f"%{speaker.lower()}%")
-        if date:
-            clauses.append("m.created_at LIKE ?")
-            parameters.append(f"{date}%")
+        clauses, date_parameters = date_range_clauses(date, date_from, date_to)
+        parameters.extend(date_parameters)
         if clauses:
             query.append("WHERE " + " AND ".join(clauses))
-        query.append("ORDER BY m.created_at DESC")
+        query.append("ORDER BY m.created_at DESC LIMIT ? OFFSET ?")
+        parameters.extend([limit, offset])
         connection = self.connection()
         try:
             rows = connection.execute(" ".join(query), parameters).fetchall()
@@ -121,10 +291,19 @@ class ReadOnlyStore:
             connection.close()
         return [public_metadata_from_row(row, self.read_record(row["stem"]) or {}) for row in rows]
 
-    def _search_by_keyword(self, date: str | None, speaker: str | None, keyword: str) -> list[dict[str, Any]]:
+    def _search_by_keyword(
+        self,
+        date: str | None,
+        speaker: str | None,
+        keyword: str,
+        date_from: str | None,
+        date_to: str | None,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
         normalized = nfc(keyword).strip().lower()
         if not normalized:
-            return self._search_without_keyword(date, speaker)
+            return self._search_without_keyword(date, speaker, date_from, date_to, limit, offset)
         connection = self.connection()
         try:
             if not fts5_available(connection):
@@ -141,11 +320,12 @@ class ReadOnlyStore:
                 if speaker:
                     query.append("JOIN participants p ON p.stem = m.stem AND lower(p.person) LIKE ?")
                     parameters.insert(0, f"%{speaker.lower()}%")
-                if date:
-                    clauses.append("m.created_at LIKE ?")
-                    parameters.append(f"{date}%")
+                date_clauses, date_parameters = date_range_clauses(date, date_from, date_to)
+                clauses.extend(date_clauses)
+                parameters.extend(date_parameters)
                 query.append("WHERE " + " AND ".join(clauses))
-                query.append("ORDER BY m.created_at DESC")
+                query.append("ORDER BY m.created_at DESC LIMIT ? OFFSET ?")
+                parameters.extend([limit, offset])
                 rows = connection.execute(" ".join(query), parameters).fetchall()
                 results = []
                 for row in rows:
@@ -164,11 +344,12 @@ class ReadOnlyStore:
                 parameters.append(f"%{speaker.lower()}%")
             clauses = ["meetings_fts MATCH ?"]
             parameters.append(fts5_phrase(normalized))
-            if date:
-                clauses.append("m.created_at LIKE ?")
-                parameters.append(f"{date}%")
+            date_clauses, date_parameters = date_range_clauses(date, date_from, date_to)
+            clauses.extend(date_clauses)
+            parameters.extend(date_parameters)
             query.append("WHERE " + " AND ".join(clauses))
-            query.append("ORDER BY bm25(meetings_fts)")
+            query.append("ORDER BY bm25(meetings_fts) LIMIT ? OFFSET ?")
+            parameters.extend([limit, offset])
             rows = connection.execute(" ".join(query), parameters).fetchall()
         finally:
             connection.close()
@@ -179,7 +360,8 @@ class ReadOnlyStore:
             results.append(metadata)
         return results
 
-    def search_people(self, keyword: str) -> list[dict[str, Any]]:
+    def search_people(self, keyword: str, *, limit: Any = None, offset: Any = None) -> list[dict[str, Any]]:
+        resolved_limit, resolved_offset = resolve_pagination(limit, offset)
         normalized = nfc(keyword).strip().lower()
         if not normalized:
             return []
@@ -192,8 +374,8 @@ class ReadOnlyStore:
             if len(normalized) < TRIGRAM_MINIMUM_LENGTH:
                 rows = connection.execute(
                     "SELECT slug, name, meeting_count, notes FROM people"
-                    " WHERE lower(name) LIKE ? OR lower(notes) LIKE ? ORDER BY name",
-                    (f"%{normalized}%", f"%{normalized}%"),
+                    " WHERE lower(name) LIKE ? OR lower(notes) LIKE ? ORDER BY name LIMIT ? OFFSET ?",
+                    (f"%{normalized}%", f"%{normalized}%", resolved_limit, resolved_offset),
                 ).fetchall()
                 return [
                     {
@@ -207,8 +389,8 @@ class ReadOnlyStore:
             rows = connection.execute(
                 "SELECT p.slug, p.name, p.meeting_count, snippet(people_fts, -1, '', '', ' … ', 12) AS match_snippet"
                 " FROM people p JOIN people_fts ON people_fts.rowid = p.rowid"
-                " WHERE people_fts MATCH ? ORDER BY bm25(people_fts)",
-                (fts5_phrase(normalized),),
+                " WHERE people_fts MATCH ? ORDER BY bm25(people_fts) LIMIT ? OFFSET ?",
+                (fts5_phrase(normalized), resolved_limit, resolved_offset),
             ).fetchall()
         finally:
             connection.close()
@@ -244,10 +426,17 @@ class ReadOnlyStore:
                     summary = stored if isinstance(stored, Mapping) else None
                 except (OSError, json.JSONDecodeError):
                     summary = None
+        # R4: `meeting.json` never carries the transcript itself (it lives in
+        # `transcript.json`/`transcript.raw.json`, with any cleanup
+        # corrections layered on separately) - `record.get("transcript")`
+        # here always returned an empty list, silently breaking the promise
+        # this tool's own description makes.
+        effective_transcript = read_effective_transcript(self.recordings / stem)
+        segments = effective_transcript.get("segments") if effective_transcript else None
         return {
             "metadata": public_metadata(record),
             "summary": summary,
-            "transcript": record.get("transcript") or [],
+            "transcript": segments if isinstance(segments, list) else [],
         }
 
     def speaker(self, name: str) -> dict[str, Any] | None:
@@ -268,10 +457,33 @@ class ReadOnlyStore:
             fields, _ = read_profile(owner_profile, "me", "")
             if str(fields.get("name", "me")).casefold() == normalized:
                 profile = owner_profile.read_text(encoding="utf-8")
-        meetings = self.search(speaker=name)
+        meetings = self._meetings_credited_to(name)
         if profile is None and not meetings:
             return None
         return {"name": name, "profile": profile, "meetings": meetings}
+
+    def _meetings_credited_to(self, name: str) -> list[dict[str, Any]]:
+        """R7: exact match, unlike `search(speaker=...)`'s deliberately loose
+        substring match. `participants.person` is not a raw live-captured
+        display name (that's `participants.json`, used only for keyword
+        search's free-text blob) - it comes from `meeting.json`'s own
+        `resolutions` (build_index in index.py), i.e. it is already the
+        resolved, canonical person name. A substring match against an
+        already-canonical name column only ever adds false positives: asking
+        for a common single-syllable name like "이" doesn't just fail to find
+        a profile, it silently attaches every meeting where *any* unrelated
+        person's resolved name happens to contain that substring."""
+        normalized = name.strip().lower()
+        connection = self.connection()
+        try:
+            rows = connection.execute(
+                "SELECT m.* FROM meetings m JOIN participants p ON p.stem = m.stem AND lower(p.person) = ?"
+                " ORDER BY m.created_at DESC",
+                (normalized,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [public_metadata_from_row(row, self.read_record(row["stem"]) or {}) for row in rows]
 
 
 def public_metadata(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -310,6 +522,23 @@ def server_info() -> dict[str, str]:
     return {"name": "damso", "version": version}
 
 
+# R10: a per-tool description can explain that one tool, but not the
+# relationship between tools - that search_meetings/search_people return a
+# `stem`/`name` meant to be fed straight into get_meeting/get_speaker is a
+# server-wide fact, so it belongs in `initialize`'s `instructions`, the one
+# thing every MCP client reads before its first tool call.
+SERVER_INSTRUCTIONS = (
+    "Read-only access to a local meeting store. All four tools are read-only and change nothing. "
+    "Typical use is two calls: search first (search_meetings or search_people) to find a candidate, "
+    "then read (get_meeting or get_speaker) using the exact `stem`/`name` the search result gave you - "
+    "those values are opaque identifiers from this store, not something to guess or type from a title. "
+    "search_meetings/search_people return only metadata plus a match `snippet`, capped at a small page by "
+    "default (see each tool's `limit`/`offset`); get_meeting/get_speaker return the full detail for one item. "
+    "A search or lookup that finds nothing returns an empty list or a tool error explaining why, never a "
+    "silent guess."
+)
+
+
 def initialize_result(params: Mapping[str, Any]) -> dict[str, Any]:
     requested = params.get("protocolVersion")
     negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
@@ -320,6 +549,7 @@ def initialize_result(params: Mapping[str, Any]) -> dict[str, Any]:
         # the user something that then fails.
         "capabilities": {"tools": {}},
         "serverInfo": server_info(),
+        "instructions": SERVER_INSTRUCTIONS,
     }
 
 
@@ -348,18 +578,51 @@ def dispatch(store: ReadOnlyStore, request: Mapping[str, Any]) -> dict[str, Any]
     arguments = params.get("arguments") or {}
     try:
         if tool == "search_meetings":
-            payload: Any = store.search(arguments.get("date"), arguments.get("speaker"), arguments.get("keyword"))
+            payload: Any = store.search(
+                arguments.get("date"),
+                arguments.get("speaker"),
+                arguments.get("keyword"),
+                date_from=arguments.get("from"),
+                date_to=arguments.get("to"),
+                limit=arguments.get("limit"),
+                offset=arguments.get("offset"),
+            )
         elif tool == "get_meeting":
-            payload = store.meeting(arguments.get("stem", ""))
+            stem = arguments.get("stem", "")
+            payload = store.meeting(stem)
+            if payload is None:
+                # R6: `stem` is a machine key from a search_meetings result,
+                # not a title a caller might type by hand - a bare `null`
+                # here read the same as "this tool is broken" and gave no
+                # hint about what to try instead.
+                return success(request_id, tool_error(
+                    f"no meeting found with stem {stem!r}. `stem` must be a value returned by search_meetings, not a meeting title."
+                ))
         elif tool == "get_speaker":
-            payload = store.speaker(arguments.get("name", ""))
+            name = arguments.get("name", "")
+            payload = store.speaker(name)
+            if payload is None:
+                return success(request_id, tool_error(
+                    f"no speaker found named {name!r}: no matching profile and no meeting credits that exact name. Try search_people first to find the right name."
+                ))
         elif tool == "search_people":
-            payload = store.search_people(arguments.get("keyword", ""))
+            payload = store.search_people(arguments.get("keyword", ""), limit=arguments.get("limit"), offset=arguments.get("offset"))
         else:
             return failure(request_id, -32602, "unknown read-only tool")
     except SearchBackendUnavailable as error:
         return failure(request_id, -32000, str(error))
+    except InvalidSearchArgument as error:
+        # A malformed argument value, not a protocol-level problem - the
+        # call itself was well-formed JSON-RPC, so this stays inside a
+        # successful tool result (MCP's own `isError`) rather than a
+        # JSON-RPC `error`, matching the spec's split between "the request
+        # was invalid" and "the tool ran but the operation failed".
+        return success(request_id, tool_error(str(error)))
     return success(request_id, {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]})
+
+
+def tool_error(message: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": message}], "isError": True}
 
 
 def success(request_id: Any, result: Mapping[str, Any]) -> dict[str, Any]:

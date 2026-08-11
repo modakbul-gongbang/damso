@@ -15,17 +15,102 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import processing, summary
+from .. import processing
 
 AUDIO_EXTENSIONS = (".caf", ".m4a", ".wav", ".mp3")
 
 PhaseOneRunner = Callable[[dict[str, Any]], dict[str, Any]]
 SummaryRunner = Callable[[dict[str, Any]], dict[str, Any]]
+
+STDERR_TAIL_CHARS = 2_000
+
+
+def _run_module_as_subprocess(module: str, extra_args: list[str], request: dict[str, Any], *, track: "_ActiveProcess") -> dict[str, Any]:
+    """Run `python -m <module> <extra_args>` as a real OS process, feeding
+    `request` as JSON on stdin and parsing JSON off stdout (R1).
+
+    Both `damso.processing` and `damso.summary` already read exactly this
+    request/response shape over stdin/stdout - it is the same narrow JSON-only
+    boundary the SSH-era client used to invoke over the wire. Running it
+    in-process instead (the previous default) meant a phase-one job's
+    sherpa-onnx/onnxruntime inference held the GIL for the length of the job
+    (minutes), starving the server's asyncio event loop completely: every
+    `/v1` and `/mcp` request timed out until the job finished. A subprocess
+    doesn't share a GIL with the server, so the event loop keeps answering
+    requests while a job runs.
+
+    `Popen.communicate()` (not manual pipe reads) writes stdin and drains
+    stdout/stderr concurrently, so a response near `MAX_REQUEST_BYTES` can't
+    deadlock the way a naive write-then-read would (see
+    REG-process-pipe-deadlock-order for the Swift-side version of this bug).
+    """
+    process = subprocess.Popen(
+        [sys.executable, "-m", module, *extra_args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    track.set(process)
+    try:
+        stdout, stderr = process.communicate(input=json.dumps(request).encode("utf-8"))
+    finally:
+        track.clear(process)
+    try:
+        return json.loads(stdout)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Either the process was terminated (exit 143, no JSON is ever
+        # printed on that path - see ProcessingTerminated in processing.py)
+        # or it crashed somewhere `main()` doesn't already turn into JSON
+        # (an unhandled exception writes a traceback to stderr instead).
+        # Either way there is no result dict to return; `_run()`'s
+        # try/except turns this raise into a `failed` job the same way an
+        # in-process exception used to.
+        tail = stderr.decode("utf-8", "replace")[-STDERR_TAIL_CHARS:]
+        if process.returncode == 143:
+            raise QueueError(f"{module} was terminated (exit 143)") from None
+        raise QueueError(f"{module} exited {process.returncode} without a JSON response: {tail or '(no stderr)'}") from None
+
+
+class _ActiveProcess:
+    """Tracks the queue worker's one currently-running subprocess so
+    `ProcessingQueue.stop()` can terminate it instead of leaving it orphaned
+    (R3). A separate lock from `ProcessingQueue._lock`: that one guards the
+    sqlite connection and must never be held for the full duration of a
+    multi-minute `communicate()` call."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+
+    def set(self, process: subprocess.Popen) -> None:
+        with self._lock:
+            self._process = process
+
+    def clear(self, process: subprocess.Popen) -> None:
+        with self._lock:
+            if self._process is process:
+                self._process = None
+
+    def terminate(self) -> None:
+        with self._lock:
+            process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
+
+
+def default_phase_one_runner(track: _ActiveProcess) -> PhaseOneRunner:
+    return lambda request: _run_module_as_subprocess("damso.processing", ["--request", "-"], request, track=track)
+
+
+def default_summary_runner(track: _ActiveProcess) -> SummaryRunner:
+    return lambda request: _run_module_as_subprocess("damso.summary", [], request, track=track)
 
 
 class QueueError(RuntimeError):
@@ -69,8 +154,9 @@ class ProcessingQueue:
         poll_interval: float = 0.5,
     ) -> None:
         self._store_root = store_root
-        self._phase_one_runner = phase_one_runner or processing.execute_request
-        self._summary_runner = summary_runner or summary.execute_request
+        self._active_process = _ActiveProcess()
+        self._phase_one_runner = phase_one_runner or default_phase_one_runner(self._active_process)
+        self._summary_runner = summary_runner or default_summary_runner(self._active_process)
         self._poll_interval = poll_interval
         self._lock = threading.Lock()
         self._connection = _connect(db_path)
@@ -88,6 +174,12 @@ class ProcessingQueue:
 
     def stop(self) -> None:
         self._stop_event.set()
+        # Terminate first, then join: a job blocked in `communicate()` on its
+        # subprocess would otherwise hold the worker thread past the join
+        # timeout below and leave the child running after the server itself
+        # has stopped (R3). Terminating a default in-process runner's
+        # `_active_process` is a safe no-op - it was never set.
+        self._active_process.terminate()
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
