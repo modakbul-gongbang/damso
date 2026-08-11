@@ -104,29 +104,53 @@ plaud login              # opens your browser; Damso never touches the token
 
 ## MCP server
 
-The HTTP daemon serves MCP Streamable HTTP directly, local or remote, at the same `/mcp` path:
+The HTTP daemon serves MCP Streamable HTTP directly at `/mcp`, so a URL and (when remote) one header are the entire client configuration. There is no certificate to trust, no host alias to add, and no wrapper script to launch.
 
-```json
-{ "url": "http://127.0.0.1:8787/mcp" }
-```
-
-Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword)`.
+Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword)`. All are read-only; the endpoint exposes no write tool.
 `search_meetings` and `search_people` match keywords through a local SQLite FTS5 index (trigram tokenizer, so Korean and English both work) and rank results by BM25 relevance; each result includes a `snippet` showing why it matched. Filtering by date or speaker alone still returns newest-first, unchanged from before.
 The index is rebuilt automatically by the app after each pipeline step, and automatically upgraded in place the first time an older index is opened after an update; rebuild manually anytime with `make reindex` or the Settings action.
+
+### Connect a client
+
+**Local store** (the daemon runs on this Mac). Loopback traffic never leaves the machine, so there is no token:
+
+```sh
+claude mcp add --transport http damso http://127.0.0.1:8787/mcp
+```
+
+**Remote store** (the daemon runs on your server Mac). Pair the app first - Settings → **Server Mac** - which writes the token to a private file the command below reads, so you never paste the secret into your shell history:
+
+```sh
+claude mcp add --transport http damso \
+  "http://<server-host>:8787/mcp" \
+  --header "Authorization: Bearer $(cat ~/Library/Application\ Support/Damso/.client-credentials/server-token)"
+```
+
+Any MCP client works, not just Claude Code. The equivalent configuration is:
+
+```json
+{
+  "url": "http://<server-host>:8787/mcp",
+  "headers": { "Authorization": "Bearer <token>" }
+}
+```
+
+Verify and manage the registration:
+
+```sh
+claude mcp list          # damso: http://... - ✔ Connected
+claude mcp get damso     # URL, headers, scope
+claude mcp remove damso  # add -s <scope> if you registered it elsewhere
+```
+
+`claude mcp add` defaults to `--scope local`, which makes the server visible only in the directory you ran it from. Add `--scope user` to reach your meetings from any project.
+
+If `claude mcp list` reports a failure, check the daemon directly - `curl -s -o /dev/null -w '%{http_code}' http://<server-host>:8787/v1/version` answers `200` without a token whenever the server is up. A `401` on `/mcp` with a healthy `/v1/version` means the token is wrong or missing; re-pair in Settings to mint a fresh one.
 
 ### Remote (two-machine setup)
 
 Damso can put the canonical store and all heavy processing on a second Apple Silicon Mac you own, while your laptop keeps detecting and recording meetings.
 `make install-server` on that Mac installs the daemon and generates an access token; Settings → **Server Mac** on your laptop takes the address and that token and pairs (D-08). The connection has no encryption of its own, so keep both Macs on a network that does - Tailscale, a VPN, or a LAN you trust. See the two-machine section of [INSTALL.md](INSTALL.md#two-machine-setup-server-mac).
-
-When the store lives on that server, point the MCP client at its address with the same bearer token instead of the loopback URL above:
-
-```json
-{
-  "url": "http://<server-host>:8787/mcp",
-  "headers": { "Authorization": "Bearer <token from make install-server>" }
-}
-```
 
 ## Development
 

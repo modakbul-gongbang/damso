@@ -110,6 +110,46 @@ The tools are `search_meetings`, `get_meeting`, `get_speaker`, and `search_peopl
 
 Point an MCP client at `http://127.0.0.1:8787/mcp` for a local-mode store, or `http://<server-host>:<port>/mcp` with the paired token (`Authorization: Bearer <token>`) for a remote one. There is no certificate to trust and no host alias to add - the URL and the header are the whole configuration.
 
+### Registering the server with a client
+
+For Claude Code, local mode needs no token because the middleware skips authentication entirely on a loopback bind:
+
+```sh
+claude mcp add --transport http damso http://127.0.0.1:8787/mcp
+```
+
+For a remote store, pair the app first (Settings → **Server Mac**, or the two-machine section below).
+Pairing writes the token to `~/Library/Application Support/Damso/.client-credentials/server-token` with mode `0600`, so the registration can read it out of the file instead of putting the secret in your shell history:
+
+```sh
+claude mcp add --transport http damso \
+  "http://<server-host>:8787/mcp" \
+  --header "Authorization: Bearer $(cat ~/Library/Application\ Support/Damso/.client-credentials/server-token)"
+```
+
+`claude mcp add` defaults to `--scope local`, which registers the server only for the directory it was run from; use `--scope user` to make it available everywhere.
+Other MCP clients take the same two values in whatever configuration format they use - a `url` and an `Authorization: Bearer <token>` header.
+
+### Where the token lives
+
+The server generates the token once, during `make install-server`, and prints it exactly once.
+It is stored on the server Mac at `~/Library/Application Support/Damso/.server-credentials/token` (mode `0600`), and that file is the only copy the daemon consults - it is re-read per request, so `make regenerate-server-credentials` invalidates every paired client immediately, without a restart.
+The client's copy is the `.client-credentials/server-token` file above, anchored to the fixed application-support directory rather than the store root so it never travels with a store export or relocation.
+Both are plain files, not Keychain items.
+
+### When it does not connect
+
+`/v1/version` answers `200` without a token whenever the daemon is up, which separates "the server is unreachable" from "my token is wrong":
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://<server-host>:8787/v1/version   # 200 = daemon is up
+curl -s -o /dev/null -w '%{http_code}\n' http://<server-host>:8787/mcp          # 401 = expected without a token
+```
+
+A hang or a connection refusal on the first command means the daemon is down or the address is unreachable; check `launchctl print gui/$(id -u)/com.yansfil.damso.server` and `~/Library/Logs/Damso/server.log` on the server Mac.
+A `401` on `/mcp` while `/v1/version` returns `200` means the token is missing, stale, or was regenerated - re-pair in Settings and re-register the MCP server with the new value.
+Requests other than `/v1/health` and `/v1/version` require the token, including `/openapi.json` and `/docs`.
+
 ## Agent CLI boundary
 
 After the speakers of a meeting are confirmed, Damso automatically sends the meeting's transcript text to the selected agent CLI (Claude Code or Codex) through stdin to produce the structured summary, the `YYYYMMDDHH-title` display title, and person-note proposals.
