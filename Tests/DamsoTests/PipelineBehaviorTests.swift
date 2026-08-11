@@ -2,68 +2,18 @@ import Foundation
 import Testing
 @testable import Damso
 
-/// Regression coverage for the automatic pipeline: the speaker gate is the
-/// only manual step, closing it runs the summary/title automatically, crash
-/// interruptions resume, failures stay retryable, and person-note proposals
-/// only touch profiles after acceptance.
+/// Regression coverage for the synchronous processing/people RPC operations
+/// still exposed through `LocalProcessingBackend` (D-13 moved phase-one and
+/// summary off this protocol entirely - they are queue-based now, triggered
+/// and polled through `RemoteMeetingStore` directly, which needs a real or
+/// fake HTTP server rather than this in-memory fake; that coverage now lives
+/// in the Python-side loopback integration suite, `test_server_http.py`,
+/// plus `test_audio_regression.py` for the real pipeline).
 private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
     private let lock = NSLock()
-    private var phaseOneRequests: [LocalProcessingRequest] = []
-    private var phaseOneResult = LocalProcessingResult(ok: true, stage: "speaker_review", speakerCount: 0)
-    private var phaseOneError: LocalProcessingCommandError?
-    private var phaseOneDependentArtifacts: [String] = []
-    var phaseOneTranscriptArtifact: String?
-    var phaseOneIdentificationArtifact: String?
-    var summaryRequests: [LocalSummaryRequest] = []
     var noteRequests: [LocalPersonNoteRequest] = []
     var rebuildCount = 0
-    var summaryArtifact: String?
-    var summaryResult = LocalSummaryResult(ok: true, status: "complete", errorCode: nil)
     var noteShouldFail = false
-
-    func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
-        lock.lock()
-        defer { lock.unlock() }
-        phaseOneRequests.append(request)
-        let directory = URL(fileURLWithPath: request.recordingDirectory)
-        phaseOneDependentArtifacts = [
-            "resolutions.yaml",
-            "transcript.json",
-            "summary.json",
-            "transcript.cleaned.json",
-            "speaker_hints.json",
-            "transcript.md",
-        ].filter {
-            (try? directory.appendingPathComponent($0).resourceValues(forKeys: [.isSymbolicLinkKey])) != nil
-        }
-        if let phaseOneError { throw phaseOneError }
-        if let phaseOneTranscriptArtifact {
-            try Data(phaseOneTranscriptArtifact.utf8).write(to: directory.appendingPathComponent("transcript.raw.json"))
-        }
-        if let phaseOneIdentificationArtifact {
-            try Data(phaseOneIdentificationArtifact.utf8).write(to: directory.appendingPathComponent("identification.json"))
-        }
-        return phaseOneResult
-    }
-
-    func configurePhaseOne(result: LocalProcessingResult, error: LocalProcessingCommandError? = nil) {
-        lock.lock()
-        defer { lock.unlock() }
-        phaseOneResult = result
-        phaseOneError = error
-    }
-
-    func phaseOneRequestsSnapshot() -> [LocalProcessingRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return phaseOneRequests
-    }
-
-    func phaseOneDependentArtifactsSnapshot() -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return phaseOneDependentArtifacts
-    }
 
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult {
         LocalProcessingResult(ok: true, stage: "ready_for_summary", speakerCount: request.resolutions.count)
@@ -129,21 +79,16 @@ private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
     func cleanTranscript(_ request: LocalTranscriptCleanupRequest) throws -> LocalTranscriptCleanupResult {
         lock.lock()
         defer { lock.unlock() }
-        cleanupRequests.append(request)
+        // Write the overlay *before* recording the request. Tests poll
+        // `cleanupRequests.count` to learn that a cleanup pass finished and
+        // then assert the overlay file exists; appending first makes the
+        // counter observable while the file is still unwritten, which failed
+        // roughly one run in three.
         try Data("""
         {"version":1,"agent":"claude","corrections":[{"index":0,"text":"인스타 스토리"}]}
         """.utf8).write(to: URL(fileURLWithPath: request.recordingDirectory).appendingPathComponent("transcript.cleaned.json"))
+        cleanupRequests.append(request)
         return LocalTranscriptCleanupResult(ok: true, status: "complete", errorCode: nil, correctionCount: 1)
-    }
-
-    func runSummary(_ request: LocalSummaryRequest) throws -> LocalSummaryResult {
-        lock.lock()
-        defer { lock.unlock() }
-        summaryRequests.append(request)
-        if let summaryArtifact {
-            try Data(summaryArtifact.utf8).write(to: URL(fileURLWithPath: request.recordingDirectory).appendingPathComponent("summary.json"))
-        }
-        return summaryResult
     }
 
     func rebuildIndex(storeRoot: String) throws -> LocalIndexResult {
@@ -153,10 +98,6 @@ private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
         return LocalIndexResult(ok: true, meetings: 1)
     }
 }
-
-private let summaryFixture = """
-{"title":"온보딩 워크숍 커리큘럼 논의","role_hint":"Facilitator","topic_summary":"Topic","one_line_summary":"Line","key_points":["Point"],"action_items":[],"person_notes":[{"name":"김구름","note":"커리큘럼 초안을 담당한다."}]}
-"""
 
 @MainActor
 private func makeWorkspace(stage: ProcessingStage = .speakerReview, resolutions: [SpeakerResolution] = []) throws -> (MeetingWorkspaceController, FakeBackend, MeetingStore, URL) {
@@ -174,7 +115,6 @@ private func makeWorkspace(stage: ProcessingStage = .speakerReview, resolutions:
     {"proposals":{"SPEAKER_00":{"total_seconds":2.0,"segment_count":1,"excerpts":[],"candidates":[{"name":"김구름","voice_score":0.88}]},"SPEAKER_01":{"total_seconds":2.0,"segment_count":1,"excerpts":[],"candidates":[]}}}
     """.utf8).write(to: directory.appendingPathComponent("identification.json"))
     let backend = FakeBackend()
-    backend.summaryArtifact = summaryFixture
     let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: backend)
     controller.refreshLibrary()
     controller.select(stem: record.stem)
@@ -189,452 +129,18 @@ private final class NoopCapture: RecordingCapture {
 }
 
 @Test @MainActor
-func resumedInitialProcessingCarriesBothRawTracksAndPersistsTheCombinedPlaybackFile() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "pipeline-dual-initial", source: .local, title: "Synthetic"))
-    record.stage = .captured
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = "system-audio.m4a"
-    try store.commit(record, artifacts: [
-        "microphone.caf": Data("microphone".utf8),
-        "system-audio.m4a": Data("system".utf8),
-        "combined-audio.m4a": Data("combined".utf8),
-    ])
-    let backend = FakeBackend()
-    backend.configurePhaseOne(result: LocalProcessingResult(
-        ok: true,
-        stage: "speaker_review",
-        speakerCount: 2,
-        processedAudioFile: "combined-audio.m4a"
-    ))
-    let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: backend)
-    controller.refreshLibrary()
-
-    controller.resumeUnprocessedLocalRecordings()
-    for _ in 0..<100 {
-        if backend.phaseOneRequestsSnapshot().count == 1,
-           (try? store.load(stem: record.stem).stage) == .speakerReview {
-            break
-        }
-        try await Task.sleep(nanoseconds: 20_000_000)
-    }
-
-    let request = try #require(backend.phaseOneRequestsSnapshot().first)
-    #expect(URL(fileURLWithPath: request.audioPath).lastPathComponent == "microphone.caf")
-    #expect(request.systemAudioPath.map { URL(fileURLWithPath: $0).lastPathComponent } == "system-audio.m4a")
-    let processed = try store.load(stem: record.stem)
-    #expect(processed.processedAudioFile == "combined-audio.m4a")
-    #expect(controller.sourceAudioURL(for: processed)?.lastPathComponent == "combined-audio.m4a")
-}
-
-@Test @MainActor
-func crashRecoveryAdoptsCombinedPlaybackFromValidatedDualSourceProvenance() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "pipeline-dual-crash", source: .local, title: "Synthetic"))
-    record.stage = .transcribing
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = "system-audio.m4a"
-    try store.commit(record, artifacts: [
-        "microphone.caf": Data("microphone".utf8),
-        "system-audio.m4a": Data("system".utf8),
-        "combined-audio.m4a": Data("combined".utf8),
-        "transcript.raw.json": Data(#"{"generation_id":"new-run","source_file":"combined-audio.m4a","source_files":["microphone.caf","system-audio.m4a"],"segments":[{"start":0.0,"end":2.0,"speaker":"SPEAKER_00","text":"테스트"}]}"#.utf8),
-        "identification.json": Data(#"{"generation_id":"new-run","proposals":{"SPEAKER_00":{"total_seconds":2.0,"segment_count":1,"excerpts":[],"candidates":[]}}}"#.utf8),
-        "phase-one.complete.json": Data(#"{"generation_id":"new-run","version":1}"#.utf8),
-    ])
-    let backend = FakeBackend()
-    let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: backend)
-    controller.refreshLibrary()
-
-    controller.processImportedMeeting(stem: record.stem)
-
-    let recovered = try store.load(stem: record.stem)
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
-    #expect(recovered.stage == .speakerReview)
-    #expect(recovered.processedAudioFile == "combined-audio.m4a")
-    #expect(controller.selectedRecord?.stage == .speakerReview)
-    #expect(controller.selectedRecord?.processedAudioFile == "combined-audio.m4a")
-    #expect(controller.state == .speakerReview(1))
-    #expect(controller.sourceAudioURL(for: recovered)?.lastPathComponent == "combined-audio.m4a")
-}
-
-@Test @MainActor
-func crashRecoverySurfacesEmptyCombinedPlaybackOnTheSelectedRecord() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "pipeline-dual-crash-missing", source: .local, title: "Synthetic"))
-    record.stage = .transcribing
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = "system-audio.m4a"
-    try store.commit(record, artifacts: [
-        "microphone.caf": Data("microphone".utf8),
-        "system-audio.m4a": Data("system".utf8),
-        "combined-audio.m4a": Data(),
-        "transcript.raw.json": Data(#"{"source_file":"combined-audio.m4a","source_files":["microphone.caf","system-audio.m4a"],"segments":[]}"#.utf8),
-        "identification.json": Data(#"{"proposals":{}}"#.utf8),
-    ])
-    let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: FakeBackend())
-
-    controller.processImportedMeeting(stem: record.stem)
-
-    let failed = try store.load(stem: record.stem)
-    #expect(failed.stage == .failed)
-    #expect(failed.lastErrorCode == "combined_audio_unavailable")
-    #expect(controller.selectedRecord?.stage == .failed)
-    #expect(controller.selectedRecord?.lastErrorCode == "combined_audio_unavailable")
-    #expect(controller.state == .failed("combined_audio_unavailable"))
-    #expect(controller.recoveryAction?.contains("combined playback audio") == true)
-}
-
-@Test @MainActor
-func crashRecoveryRerunsPhaseOneWhenIdentificationIsFromAnOlderGeneration() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "pipeline-partial-crash", source: .local, title: "Synthetic"))
-    record.stage = .transcribing
-    record.originalAudioFile = "microphone.caf"
-    try store.commit(record, artifacts: [
-        "microphone.caf": Data("microphone".utf8),
-        "transcript.raw.json": Data(#"{"generation_id":"new-run","source_file":"microphone.caf","source_files":["microphone.caf"],"segments":[{"start":0.0,"end":2.0,"speaker":"SPEAKER_00","text":"새 전사"}]}"#.utf8),
-        "identification.json": Data(#"{"generation_id":"old-run","proposals":{"SPEAKER_00":{"total_seconds":2.0,"segment_count":1,"excerpts":["예전 전사"],"candidates":[]}}}"#.utf8),
-        "phase-one.complete.json": Data(#"{"generation_id":"old-run","version":1}"#.utf8),
-    ])
-    let backend = FakeBackend()
-    let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: backend)
-
-    controller.processImportedMeeting(stem: record.stem)
-    for _ in 0..<100 where backend.phaseOneRequestsSnapshot().isEmpty {
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-
-    #expect(backend.phaseOneRequestsSnapshot().count == 1)
-}
-
-@Test @MainActor
-func crashRecoveryRerunsPhaseOneWhileANewerAttemptIsInProgress() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "pipeline-active-retry", source: .local, title: "Synthetic"))
-    record.stage = .transcribing
-    record.originalAudioFile = "microphone.caf"
-    try store.commit(record, artifacts: [
-        "microphone.caf": Data("microphone".utf8),
-        "transcript.raw.json": Data(#"{"generation_id":"old-run","source_file":"microphone.caf","source_files":["microphone.caf"],"segments":[{"start":0.0,"end":2.0,"speaker":"SPEAKER_00","text":"예전 전사"}]}"#.utf8),
-        "identification.json": Data(#"{"generation_id":"old-run","proposals":{"SPEAKER_00":{"total_seconds":2.0,"segment_count":1,"excerpts":["예전 전사"],"candidates":[]}}}"#.utf8),
-        "phase-one.complete.json": Data(#"{"generation_id":"old-run","version":1}"#.utf8),
-        "phase-one.in-progress.json": Data(#"{"generation_id":"new-run","version":1}"#.utf8),
-    ])
-    let backend = FakeBackend()
-    let controller = MeetingWorkspaceController(store: store, capture: NoopCapture(), backend: backend)
-
-    controller.processImportedMeeting(stem: record.stem)
-    for _ in 0..<100 where backend.phaseOneRequestsSnapshot().isEmpty {
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-
-    #expect(backend.phaseOneRequestsSnapshot().count == 1)
-}
-
-@Test @MainActor
-func retryProcessingClearsAStaleCombinedFileForSingleTrackSuccess() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: "pipeline-fixture")
-    try Data("microphone".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
-    try Data("stale combined".utf8).write(to: directory.appendingPathComponent("combined-audio.m4a"))
-    var record = try store.load(stem: "pipeline-fixture")
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = nil
-    record.processedAudioFile = "combined-audio.m4a"
-    try store.update(record)
-    controller.refreshLibrary()
-    controller.select(stem: record.stem)
-    backend.configurePhaseOne(result: LocalProcessingResult(
-        ok: true,
-        stage: "speaker_review",
-        speakerCount: 1,
-        processedAudioFile: nil
-    ))
-
-    await controller.retrySelectedPhaseOne()
-
-    let request = try #require(backend.phaseOneRequestsSnapshot().first)
-    #expect(URL(fileURLWithPath: request.audioPath).lastPathComponent == "microphone.caf")
-    #expect(request.systemAudioPath == nil)
-    let updated = try store.load(stem: record.stem)
-    #expect(updated.processedAudioFile == nil)
-    #expect(controller.sourceAudioURL(for: updated)?.lastPathComponent == "microphone.caf")
-}
-
-@Test @MainActor
-func phaseOneRetryInvalidatesStaleSpeakerStateBeforeRunningTheBackend() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let stem = "pipeline-fixture"
-    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: stem)
-    let sourceAudio = Data("microphone source".utf8)
-    try sourceAudio.write(to: directory.appendingPathComponent("microphone.caf"))
-
-    let oldTranscript = [
-        TranscriptSegment(speaker: "SPEAKER_17", startSeconds: 0, endSeconds: 1, text: "old"),
-    ]
-    let oldSummary = StructuredSummary(
-        oneLine: "old summary",
-        keyDiscussion: ["old point"],
-        actionItems: [],
-        roleHints: [:],
-        topicSummary: "old topic"
-    )
-    let corrections = MeetingCorrections(title: "corrected title", transcript: oldTranscript, summary: oldSummary)
-    let calendarLink = CalendarEventLink(task: "keep", dueDate: "2026-07-24", eventID: "event-1")
-    var record = try store.load(stem: stem)
-    record.title = "Keep this title"
-    record.originalAudioFile = "microphone.caf"
-    record.transcript = oldTranscript
-    record.summary = oldSummary
-    record.resolutions = (0..<18).map {
-        SpeakerResolution(speaker: String(format: "SPEAKER_%02d", $0), action: .skip, personName: nil)
-    }
-    record.corrections = corrections
-    record.personNotes = [PersonNoteProposal(name: "Keep no stale note", note: "old note", status: .proposed)]
-    record.calendarEventLinks = [calendarLink]
-    try store.update(record)
-
-    let staleArtifacts = [
-        "resolutions.yaml",
-        "transcript.json",
-        "summary.json",
-        "transcript.cleaned.json",
-        "speaker_hints.json",
-        "transcript.md",
-    ]
-    for name in staleArtifacts where name != "transcript.md" {
-        try Data("stale \(name)".utf8).write(to: directory.appendingPathComponent(name))
-    }
-    try FileManager.default.createSymbolicLink(
-        at: directory.appendingPathComponent("transcript.md"),
-        withDestinationURL: root.appendingPathComponent("missing-external-transcript.md")
-    )
-    backend.phaseOneTranscriptArtifact = #"{"segments":[{"start":0.0,"end":2.0,"speaker":"SPEAKER_00","text":"new one"},{"start":2.0,"end":4.0,"speaker":"SPEAKER_01","text":"new two"}]}"#
-    backend.phaseOneIdentificationArtifact = #"{"proposals":{"SPEAKER_00":{"total_seconds":2.0,"segment_count":1,"excerpts":[],"candidates":[]},"SPEAKER_01":{"total_seconds":2.0,"segment_count":1,"excerpts":[],"candidates":[]}}}"#
-    backend.configurePhaseOne(result: LocalProcessingResult(ok: true, stage: "speaker_review", speakerCount: 2))
-    controller.refreshLibrary()
-    controller.select(stem: stem)
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(backend.phaseOneRequestsSnapshot().count == 1)
-    #expect(backend.phaseOneDependentArtifactsSnapshot().isEmpty)
-    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: directory.appendingPathComponent("transcript.md").path)) == nil)
-    let updated = try store.load(stem: stem)
-    #expect(updated.resolutions.isEmpty)
-    #expect(updated.transcript == nil)
-    #expect(updated.summary == nil)
-    #expect(updated.personNotes == nil)
-    #expect(updated.corrections == corrections)
-    #expect(updated.title == "Keep this title")
-    #expect(updated.calendarEventLinks == [calendarLink])
-    #expect(updated.originalAudioFile == "microphone.caf")
-    #expect(try Data(contentsOf: directory.appendingPathComponent("microphone.caf")) == sourceAudio)
-    #expect(controller.processingArtifacts.proposals.map(\.speaker) == ["SPEAKER_00", "SPEAKER_01"])
-    #expect(controller.state == .speakerReview(2))
-}
-
-@Test @MainActor
-func phaseOneRetryRefusesUnsafeStaleArtifactsAndDoesNotRunTheBackend() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let stem = "pipeline-fixture"
-    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: stem)
-    try Data("microphone".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
-    try FileManager.default.createDirectory(at: directory.appendingPathComponent("summary.json"), withIntermediateDirectories: false)
-    var record = try store.load(stem: stem)
-    record.originalAudioFile = "microphone.caf"
-    record.resolutions = [SpeakerResolution(speaker: "SPEAKER_17", action: .skip, personName: nil)]
-    try store.update(record)
-    controller.refreshLibrary()
-    controller.select(stem: stem)
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
-    #expect(controller.state == .failed("phase_one_retry_preparation_failed"))
-    #expect(controller.recoveryAction?.contains("could not be cleared safely") == true)
-    #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("summary.json").path))
-    let failed = try store.load(stem: stem)
-    #expect(failed.stage == .failed)
-    #expect(failed.lastErrorCode == "phase_one_retry_preparation_failed")
-    #expect(failed.resolutions.isEmpty)
-}
-
-@Test @MainActor
-func dualProcessingCannotSucceedWithoutAValidCombinedPlaybackFile() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: "pipeline-fixture")
-    try Data("microphone".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
-    try Data("system".utf8).write(to: directory.appendingPathComponent("system-audio.m4a"))
-    var record = try store.load(stem: "pipeline-fixture")
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = "system-audio.m4a"
-    try store.update(record)
-    controller.refreshLibrary()
-    controller.select(stem: record.stem)
-    backend.configurePhaseOne(result: LocalProcessingResult(
-        ok: true,
-        stage: "speaker_review",
-        speakerCount: 2,
-        processedAudioFile: nil
-    ))
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(controller.state == .failed("combined_audio_unavailable"))
-    #expect(controller.recoveryAction?.contains("combined playback audio") == true)
-    let failed = try store.load(stem: record.stem)
-    #expect(failed.stage == .failed)
-    #expect(failed.lastErrorCode == "combined_audio_unavailable")
-}
-
-@Test @MainActor
-func retryProcessingSurfacesMissingAndUndecodableSystemAudioRecoveryActions() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: "pipeline-fixture")
-    try Data("microphone".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
-    var record = try store.load(stem: "pipeline-fixture")
-    record.originalAudioFile = "microphone.caf"
-    record.systemAudioFile = "system-audio.m4a"
-    try store.update(record)
-    controller.refreshLibrary()
-    controller.select(stem: record.stem)
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
-    #expect(controller.state == .failed("recording_system_audio_missing"))
-    #expect(controller.recoveryAction?.contains("system audio") == true)
-
-    try Data("corrupt".utf8).write(to: directory.appendingPathComponent("system-audio.m4a"))
-    let nextAction = "Restore the captured system audio inside this meeting folder, then retry local processing."
-    backend.configurePhaseOne(
-        result: LocalProcessingResult(ok: false, stage: nil, speakerCount: nil),
-        error: .backend(code: "captured_system_audio_unavailable", nextAction: nextAction)
-    )
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(backend.phaseOneRequestsSnapshot().count == 1)
-    #expect(controller.state == .failed("captured_system_audio_unavailable"))
-    #expect(controller.recoveryAction == nextAction)
-    #expect(try store.load(stem: record.stem).lastErrorCode == "captured_system_audio_unavailable")
-}
-
-@Test @MainActor
-func generatingTheSummaryAfterConfirmingSpeakersComposesTheDisplayTitle() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-
-    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
-    #expect(backend.summaryRequests.isEmpty)
-    #expect(controller.selectedRecord?.stage == .speakerReview)
-
-    // Confirming the last speaker no longer auto-summarizes: the transcript
-    // is sent to the agent only when the user presses Generate summary.
-    await controller.applyResolution(speaker: "SPEAKER_01", action: .new, personName: "이노을")
-    #expect(backend.summaryRequests.isEmpty)
-    #expect(controller.selectedRecord?.stage == .speakerReview)
-
-    await controller.runSummary()
-
-    #expect(backend.summaryRequests.count == 1)
-    #expect(backend.summaryRequests.first?.language == "ko")
-    let record = try store.load(stem: "pipeline-fixture")
-    #expect(record.stage == .complete)
-    #expect(record.title.hasSuffix("-온보딩 워크숍 커리큘럼 논의"))
-    #expect(MeetingTitleComposer.hasComposedPrefix(record.title))
-    #expect(record.summary?.oneLine == "Line")
-    #expect(record.personNotes == [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)])
-}
-
-@Test @MainActor
-func summaryRunsWithoutConfirmingSpeakersThenCanBeRegeneratedAfterNaming() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-
-    // No resolutions applied: confirming speakers is no longer a precondition,
-    // so the summary runs on the raw SPEAKER labels as an escape hatch.
-    #expect(controller.selectedRecord?.resolutions.isEmpty == true)
-    await controller.runSummary()
-    #expect(backend.summaryRequests.count == 1)
-    #expect(try store.load(stem: "pipeline-fixture").stage == .complete)
-
-    // Naming a speaker afterward and regenerating sends the transcript again,
-    // so the confirmed names can flow into a fresh summary.
-    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
-    await controller.runSummary()
-    #expect(backend.summaryRequests.count == 2)
-    #expect(try store.load(stem: "pipeline-fixture").stage == .complete)
-}
-
-@Test @MainActor
-func summaryFailureKeepsSpeakerConfirmationsAndStaysRetryable() async throws {
-    let (controller, backend, store, root) = try makeWorkspace()
-    defer { try? FileManager.default.removeItem(at: root) }
-    backend.summaryArtifact = nil
-    backend.summaryResult = LocalSummaryResult(ok: true, status: "failed", errorCode: "agent_cli_missing")
-
-    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
-    await controller.applyResolution(speaker: "SPEAKER_01", action: .skip)
-    await controller.runSummary()
-
-    let failed = try store.load(stem: "pipeline-fixture")
-    #expect(failed.stage == .partial)
-    #expect(failed.lastErrorCode == "agent_cli_missing")
-    #expect(failed.resolutions.count == 2)
-    #expect(controller.recoveryAction != nil)
-
-    backend.summaryArtifact = summaryFixture
-    backend.summaryResult = LocalSummaryResult(ok: true, status: "complete", errorCode: nil)
-    await controller.runSummary()
-
-    let recovered = try store.load(stem: "pipeline-fixture")
-    #expect(recovered.stage == .complete)
-    #expect(recovered.summary != nil)
-    #expect(recovered.resolutions.count == 2)
-}
-
-@Test @MainActor
-func summaryInterruptedByACrashResumesOnceOnNextLaunch() async throws {
-    let resolutions = [
-        SpeakerResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름"),
-        SpeakerResolution(speaker: "SPEAKER_01", action: .skip, personName: nil),
-    ]
-    let (controller, backend, store, root) = try makeWorkspace(stage: .summarizing, resolutions: resolutions)
-    defer { try? FileManager.default.removeItem(at: root) }
-
-    await controller.resumeInterruptedSummaries()
-    #expect(backend.summaryRequests.count == 1)
-    #expect(try store.load(stem: "pipeline-fixture").stage == .complete)
-
-    await controller.resumeInterruptedSummaries()
-    #expect(backend.summaryRequests.count == 1)
-}
-
-@Test @MainActor
 func personNoteProposalsOnlyTouchProfilesAfterAcceptance() async throws {
     let (controller, backend, store, root) = try makeWorkspace()
     defer { try? FileManager.default.removeItem(at: root) }
     await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
     await controller.applyResolution(speaker: "SPEAKER_01", action: .skip)
-    await controller.runSummary()
+    // Summary generation itself is D-13's server-owned queue now (covered by
+    // the Python-side loopback suite); this test seeds the proposed note
+    // directly to cover only the note propose/reject/accept lifecycle.
+    var summarized = try store.load(stem: "pipeline-fixture")
+    summarized.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)]
+    try store.update(summarized)
+    controller.refreshLibrary()
     let proposal = try #require(controller.selectedRecord?.personNotes?.first)
 
     controller.rejectPersonNote(proposal)
@@ -651,6 +157,38 @@ func personNoteProposalsOnlyTouchProfilesAfterAcceptance() async throws {
     #expect(backend.noteRequests.count == 1)
     #expect(backend.noteRequests.first?.note == "커리큘럼 전체를 리드한다.")
     #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .accepted)
+}
+
+/// A regenerated summary replaces the proposals the user has not decided on
+/// and keeps the decided ones. Two LLM runs never phrase a note identically,
+/// so accumulating by exact `(name, note)` match stacked a near-duplicate
+/// proposal per person on every "Generate summary" press (confirmed via a
+/// real two-machine run: each participant's proposal showed twice after one
+/// re-summary).
+@Test @MainActor
+func regeneratedSummaryReplacesUndecidedProposalsAndKeepsDecidedOnes() throws {
+    let (controller, _, _, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let existing = [
+        PersonNoteProposal(name: "정현준", note: "첫 실행의 문구.", status: .proposed),
+        PersonNoteProposal(name: "이호연", note: "첫 실행의 다른 문구.", status: .proposed),
+        PersonNoteProposal(name: "김구름", note: "이미 수락한 메모.", status: .accepted),
+        PersonNoteProposal(name: "박하늘", note: "이미 거절한 메모.", status: .rejected),
+    ]
+    let regenerated = [
+        PersonNoteProposal(name: "정현준", note: "두 번째 실행의 조금 다른 문구.", status: .proposed),
+        PersonNoteProposal(name: "이호연", note: "두 번째 실행의 또 다른 문구.", status: .proposed),
+        // An exact match of an already-decided note must not be re-proposed.
+        PersonNoteProposal(name: "김구름", note: "이미 수락한 메모.", status: .proposed),
+    ]
+
+    let merged = controller.mergedPersonNotes(existing: existing, proposed: regenerated)
+
+    #expect(merged.filter { $0.status == .proposed }.map(\.name).sorted() == ["이호연", "정현준"])
+    #expect(merged.filter { $0.status == .proposed }.allSatisfy { $0.note.contains("두 번째") })
+    #expect(merged.contains(PersonNoteProposal(name: "김구름", note: "이미 수락한 메모.", status: .accepted)))
+    #expect(merged.contains(PersonNoteProposal(name: "박하늘", note: "이미 거절한 메모.", status: .rejected)))
+    #expect(merged.count == 4)
 }
 
 @Test @MainActor
@@ -737,7 +275,8 @@ func localizationCatalogServesKoreanByDefaultAndEnglishWhenSelected() {
     // Language resolution defaults to Korean; checked against an isolated
     // defaults suite so no global state is mutated (tests run in parallel
     // and every Loc.tr call in other suites reads the global preference).
-    let isolated = UserDefaults(suiteName: "damso-tests-language-\(UUID().uuidString)")!
+    let scratch = ScratchDefaults(prefix: "damso-tests-language")
+    let isolated = scratch.defaults
     #expect(AgentPreferences.language(isolated) == .korean)
     isolated.set(SummaryLanguage.english.rawValue, forKey: AgentPreferences.languageKey)
     #expect(AgentPreferences.language(isolated) == .english)
@@ -869,44 +408,22 @@ func reclusterInvalidatesStaleCleanupOverlayAndReRunsCleanup() async throws {
     #expect(FileManager.default.fileExists(atPath: overlayURL.path))
 }
 
-@Test @MainActor
-func aClientRoleNeverOrchestratesProcessingForARecordStuckMidFlight() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let cacheRoot = root.appendingPathComponent("cache", isDirectory: true)
-    let outboxRoot = root.appendingPathComponent("outbox", isDirectory: true)
-    let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
-    var record = try cache.createRecord(MeetingDraft(stem: "stuck-fixture", source: .local, title: "Stuck"))
-    record.stage = .captured
-    try cache.commit(record)
-
-    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
-    configuration.configureRemote(host: "mini", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
-    let remoteStore = RemoteMeetingStore(launcher: CommandLauncher(configuration: configuration), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
-    let backend = FakeBackend()
-
-    let controller = MeetingWorkspaceController(store: remoteStore, capture: NoopCapture(), backend: backend)
-
-    // The record still shows up (refreshLibrary is unconditional)...
-    #expect(controller.records.map(\.stem).contains("stuck-fixture"))
-    // ...but a client never decides to resume it - that is the mini's job
-    // against the canonical store it owns (R13/T14).
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
-    #expect(controller.role == .client)
-}
-
+/// A remote-mode workspace whose connectivity status is pinned for the
+/// guard tests below - `RemoteMeetingStore` over the new HTTP client
+/// (D-06), never actually dialing out since these tests only exercise
+/// `guardRemoteWrite()` firing before any request would be sent.
 @MainActor
 private func makeClientWorkspace(status: RemoteConnectivityTracker.Status, backend: FakeBackend = FakeBackend()) -> (MeetingWorkspaceController, URL) {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     let cacheRoot = root.appendingPathComponent("cache", isDirectory: true)
     let outboxRoot = root.appendingPathComponent("outbox", isDirectory: true)
-    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
-    configuration.configureRemote(host: "mini", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
-    let remoteStore = RemoteMeetingStore(launcher: CommandLauncher(configuration: configuration), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    let configuration = ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())
+    try? configuration.configureRemote(host: "mini", port: 8787, token: "token", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
+    let remoteStore = RemoteMeetingStore(client: DamsoHTTPClient(configuration: configuration), connectionConfiguration: configuration, cacheRoot: cacheRoot, outboxRoot: outboxRoot, needsCacheSync: true)
     let tracker = RemoteConnectivityTracker()
     switch status {
     case .connected: tracker.noteSuccess()
-    case .disconnected: tracker.noteFailure(.launchFailed)
+    case .disconnected: tracker.noteFailure(.transportFailed)
     case .versionMismatch: tracker.noteFailure(.remoteUpdateRequired)
     }
     let controller = MeetingWorkspaceController(store: remoteStore, capture: NoopCapture(), backend: backend, connectivityTracker: tracker)
@@ -924,7 +441,6 @@ func aDisconnectedClientBlocksARemoteWriteAttemptAtCallTimeWithoutRunningIt() as
     // fire before any of runSummary's own preconditions get a chance to.
     await controller.runSummary()
 
-    #expect(backend.summaryRequests.isEmpty)
     #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
 }
 
@@ -937,9 +453,39 @@ func aVersionMismatchBlocksARemoteWriteAttemptWithADistinctMessage() async throw
 
     await controller.runSummary()
 
-    #expect(backend.summaryRequests.isEmpty)
     #expect(controller.recoveryAction == Loc.tr("The Mac mini needs a Damso update before this can run."))
     #expect(controller.recoveryAction != Loc.tr("Available once connected to the Mac mini."))
+}
+
+/// A stale `recoveryAction` from one meeting's failed action must never
+/// leak into an unrelated meeting's view - `select` is the only place a
+/// failure like the disconnected-write guard above gets cleared, since
+/// `recoveryAction` has no per-stem scoping of its own (found via a real
+/// two-machine test: the inline recovery banner and "Recording needs
+/// attention" header both kept showing an old failure identically on every
+/// meeting the user opened afterward, including already-complete ones with
+/// nothing wrong).
+@Test @MainActor
+func selectingADifferentMeetingClearsAStaleRecoveryActionFromTheLastOne() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cache = MeetingStore(root: root.appendingPathComponent("cache", isDirectory: true), minimumFreeBytes: 0)
+    for stem in ["meeting-a", "meeting-b"] {
+        var record = try cache.createRecord(MeetingDraft(stem: stem, source: .local, title: stem))
+        record.stage = .speakerReview
+        record.originalAudioFile = "microphone.caf"
+        try cache.commit(record)
+        try cache.update(record)
+    }
+    controller.refreshLibrary()
+    controller.select(stem: "meeting-a")
+
+    await controller.runSummary()
+    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
+
+    controller.select(stem: "meeting-b")
+    #expect(controller.recoveryAction == nil)
 }
 
 @Test @MainActor
@@ -1009,35 +555,5 @@ func aRecordingStillWaitingInTheOutboxSaysSoRatherThanFailingOnTheServer() async
 
     await controller.retrySelectedPhaseOne()
 
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
     #expect(controller.state == .failed("recording_not_transferred"))
-}
-
-@Test @MainActor
-func aDisconnectedClientCannotStartAPhaseOneRetryAtAll() async throws {
-    let backend = FakeBackend()
-    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
-    defer { try? FileManager.default.removeItem(at: root) }
-    try seedHandedOffRecord(controller, cacheRoot: root.appendingPathComponent("cache", isDirectory: true))
-
-    await controller.retrySelectedPhaseOne()
-
-    #expect(backend.phaseOneRequestsSnapshot().isEmpty)
-    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
-}
-
-@Test @MainActor
-func aServerSweepsFarMoreOftenThanARecordingMacBecauseNothingElseTriggersIt() {
-    // On a combined Mac the sweep is a safety net - a finished recording starts
-    // its own processing. On a server it is the only signal that a handoff
-    // arrived, so the shared 10-minute cadence stranded fresh recordings for
-    // most of an interval.
-    let server = MeetingWorkspaceController.processingSweepInterval(for: .server)
-    let combined = MeetingWorkspaceController.processingSweepInterval(for: .combined)
-    let client = MeetingWorkspaceController.processingSweepInterval(for: .client)
-
-    #expect(server <= 60)
-    #expect(combined == 10 * 60)
-    #expect(client == combined)
-    #expect(server < combined)
 }

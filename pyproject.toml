@@ -14,11 +14,14 @@ Homepage = "https://github.com/yansfil/damso"
 
 [project.optional-dependencies]
 local-processing = ["mlx-whisper==0.4.3", "numpy>=1.26,<3", "sherpa-onnx==1.13.4", "sherpa-onnx-bin==1.13.4", "huggingface-hub>=1.7,<2"]
+server = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-multipart>=0.0.9,<1"]
 
 [project.scripts]
 damso-processing = "damso.processing:main"
 damso-storage = "damso.migration:main"
 damso-model-setup = "damso.model_setup:main"
+damso-server = "damso.server.main:main"
+damso-server-credentials = "damso.server.credentials:main"
 
 [tool.setuptools]
 package-dir = {"" = "backend"}

@@ -1,4 +1,4 @@
-"""User-initiated local model provisioning for Meeting Hub.
+"""User-initiated local model provisioning for Damso.
 
 This module downloads only fixed public model artifacts and installs only the
 local-processing Python dependencies. It never receives or uploads meeting
@@ -187,7 +187,7 @@ def emit(payload: dict[str, object]) -> None:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Meeting Hub local model setup")
+    parser = argparse.ArgumentParser(description="Damso local model setup")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--status", action="store_true")
     mode.add_argument("--install", action="store_true")

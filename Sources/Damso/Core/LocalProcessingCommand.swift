@@ -1,40 +1,5 @@
 import Foundation
 
-struct LocalProcessingCommand: Equatable, Sendable {
-    let pythonExecutable: String
-
-    init(pythonExecutable: String = "python3") {
-        self.pythonExecutable = pythonExecutable
-    }
-
-    var arguments: [String] {
-        [pythonExecutable, "-m", "damso.processing", "--request", "-"]
-    }
-}
-
-struct LocalProcessingRequest: Encodable, Sendable {
-    let operation = "phase-one"
-    let recordingDirectory: String
-    let audioPath: String
-    let systemAudioPath: String?
-    let hints: LocalProcessingHints
-
-    enum CodingKeys: String, CodingKey {
-        case operation
-        case recordingDirectory = "recording_directory"
-        case audioPath = "audio_path"
-        case systemAudioPath = "system_audio_path"
-        case hints
-    }
-
-    init(recordingDirectory: String, audioPath: String, systemAudioPath: String? = nil, hints: LocalProcessingHints) {
-        self.recordingDirectory = recordingDirectory
-        self.audioPath = audioPath
-        self.systemAudioPath = systemAudioPath
-        self.hints = hints
-    }
-}
-
 struct LocalProcessingHints: Encodable, Sendable {
     let participants: [String]
     let topic: String?
@@ -56,6 +21,11 @@ struct LocalProcessingHints: Encodable, Sendable {
     }
 }
 
+/// D-13: phase-one is no longer a request/response call from the client's
+/// side at all - the server's queue runs it after an upload commits. This
+/// type only remains as the shape `MeetingWorkspaceController` used to build
+/// before an upload, kept for the hints it carries into `meeting.json`;
+/// there is no more direct phase-one RPC.
 struct LocalProcessingResult: Decodable, Equatable, Sendable {
     let ok: Bool
     let stage: String?
@@ -178,10 +148,7 @@ enum LocalProcessingCommandError: Error, Equatable {
     case backend(code: String, nextAction: String)
     case invalidResponse
     case oversizedResponse
-    /// The mini's `damso.serve` rejected the request's protocol_version.
-    /// Surface exactly one message: update Damso on the Mac mini.
     case remoteUpdateRequired
-    /// Remote mode is selected but no store root is configured for it.
     case remoteMisconfigured
 }
 
@@ -200,109 +167,65 @@ private struct LocalProcessingErrorEnvelope: Decodable {
     let error: Details
 }
 
+/// The nine synchronous processing/people RPC operations (D-13 leaves these
+/// unchanged in shape - only phase-one and summary became queue-based):
+/// recluster, apply-resolutions, append-person-note, refresh-candidates,
+/// set-person-email, remove-person-alias, all now POSTed to `/v1/rpc`
+/// instead of ssh'd or spawned as a local subprocess (D-05 unifies local and
+/// remote onto the same HTTP transport).
 enum LocalProcessingProcessRunner {
-    private static let maximumResponseBytes = 64 * 1_024
-
-    static func runPhaseOne(_ request: LocalProcessingRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func applyResolutions(_ request: LocalResolutionProcessingRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func applyResolutions(_ request: LocalResolutionProcessingRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func recluster(_ request: LocalReclusterRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func recluster(_ request: LocalReclusterRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func appendPersonNote(_ request: LocalPersonNoteRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func appendPersonNote(_ request: LocalPersonNoteRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func refreshCandidates(_ request: LocalRefreshCandidatesRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func refreshCandidates(_ request: LocalRefreshCandidatesRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func setPersonEmail(_ request: LocalPersonEmailRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func setPersonEmail(_ request: LocalPersonEmailRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
+    static func removePersonAlias(_ request: LocalRemovePersonAliasRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
     }
 
-    static func removePersonAlias(_ request: LocalRemovePersonAliasRequest, command: LocalProcessingCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalProcessingResult {
-        try run(request, command: command, launcher: launcher)
-    }
-
-    private static func run<Request: Encodable>(_ request: Request, command: LocalProcessingCommand, launcher: CommandLauncher) throws -> LocalProcessingResult {
-        let input: Data
+    private static func run<Request: Encodable>(_ request: Request, client: DamsoHTTPClient) throws -> LocalProcessingResult {
+        let data: Data
         do {
-            input = try JSONEncoder().encode(request)
+            data = try client.send(request)
         } catch {
-            throw LocalProcessingCommandError.requestEncoding
+            throw translate(error)
         }
-
-        switch launcher.configuration.mode {
-        case .local:
-            // Unchanged from before the launcher existed: the same argv, the
-            // same spawn, the same envelope.
-            let output = try spawn(argv: command.arguments, input: input, launcher: launcher)
-            return try decode(output)
-        case .remote:
-            let data: Data
-            do {
-                data = try DamsoServeClient(launcher: launcher).send(request)
-            } catch {
-                throw Self.translate(error)
-            }
-            return try decode(CommandLauncherOutput(data: data, terminationStatus: 0))
-        }
-    }
-
-    private static func spawn(argv: [String], input: Data, launcher: CommandLauncher) throws -> CommandLauncherOutput {
-        do {
-            return try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
-        } catch CommandLauncherError.oversizedResponse {
-            throw LocalProcessingCommandError.oversizedResponse
-        } catch {
-            throw LocalProcessingCommandError.launchFailed
-        }
-    }
-
-    static func injectProtocolVersion(into data: Data) throws -> Data {
-        do {
-            return try DamsoServeClient.injectProtocolVersion(into: data)
-        } catch {
-            throw LocalProcessingCommandError.requestEncoding
-        }
+        return try decode(data)
     }
 
     private static func translate(_ error: Error) -> LocalProcessingCommandError {
         switch error {
-        case DamsoServeError.remoteMisconfigured: .remoteMisconfigured
-        case DamsoServeError.oversizedResponse: .oversizedResponse
-        case DamsoServeError.requestEncoding: .requestEncoding
-        case DamsoServeError.remoteUpdateRequired: .remoteUpdateRequired
-        case DamsoServeError.protocolError: .failed
-        case DamsoServeError.launchFailed: .launchFailed
+        case DamsoServerError.remoteMisconfigured: .remoteMisconfigured
+        case DamsoServerError.payloadTooLarge: .oversizedResponse
+        case DamsoServerError.requestEncoding: .requestEncoding
+        case DamsoServerError.remoteUpdateRequired: .remoteUpdateRequired
+        case DamsoServerError.unprocessable: .failed
+        case DamsoServerError.transportFailed: .launchFailed
         default: .launchFailed
         }
     }
 
-    /// Order matters: a `damso.serve` protocol-level rejection and a plain
-    /// operation error are structurally distinct shapes, so both are tried
-    /// before falling back to a successful result. Exit code is not a
-    /// reliable signal here - `damso.serve` is a persistent-server boundary
-    /// that reports operation failure only in the JSON body, unlike
-    /// `damso.processing`'s CLI, which also exits non-zero on failure.
-    static func decode(_ output: CommandLauncherOutput) throws -> LocalProcessingResult {
-        do {
-            try DamsoServeClient.rejectProtocolError(output.data)
-        } catch {
-            throw Self.translate(error)
-        }
-        if let envelope = try? JSONDecoder().decode(LocalProcessingErrorEnvelope.self, from: output.data), !envelope.ok {
+    static func decode(_ data: Data) throws -> LocalProcessingResult {
+        if let envelope = try? JSONDecoder().decode(LocalProcessingErrorEnvelope.self, from: data), !envelope.ok {
             throw LocalProcessingCommandError.backend(code: envelope.error.code, nextAction: envelope.error.nextAction)
         }
-        guard let result = try? JSONDecoder().decode(LocalProcessingResult.self, from: output.data), result.ok else {
-            throw output.terminationStatus == 0 ? LocalProcessingCommandError.invalidResponse : LocalProcessingCommandError.failed
+        guard let result = try? JSONDecoder().decode(LocalProcessingResult.self, from: data), result.ok else {
+            throw LocalProcessingCommandError.invalidResponse
         }
         return result
     }

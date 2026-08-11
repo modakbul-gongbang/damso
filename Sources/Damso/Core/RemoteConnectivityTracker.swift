@@ -1,9 +1,9 @@
 import Foundation
 
-/// Last known outcome of talking to the mini, updated by every remote code
-/// path (`damso.serve` calls, cache sync, outbox handoff, on-demand audio
-/// fetch) as a side effect of doing their own work - never by a dedicated
-/// health-check ping of its own, so this never adds ssh round-trips beyond
+/// Last known outcome of talking to the server daemon, updated by every
+/// remote code path (`/v1/rpc`, changes sync, upload, on-demand file fetch)
+/// as a side effect of doing their own work - never by a dedicated
+/// health-check ping of its own, so this never adds HTTP round-trips beyond
 /// the ones already happening (R9b). A plain lock-guarded singleton rather
 /// than an `ObservableObject`: it is written from background tasks/detached
 /// tasks all over Core, and `MeetingWorkspaceController` is the one place
@@ -12,8 +12,8 @@ final class RemoteConnectivityTracker: @unchecked Sendable {
     enum Status: Equatable {
         case connected
         case disconnected
-        /// `damso.serve` rejected the request's protocol_version - the mini
-        /// is reachable, but its Damso build disagrees with this client's.
+        /// The server rejected `X-Damso-Protocol-Version` - it is reachable,
+        /// but its Damso build disagrees with this client's.
         case versionMismatch
     }
 
@@ -32,29 +32,29 @@ final class RemoteConnectivityTracker: @unchecked Sendable {
         set(.connected)
     }
 
-    /// Only `.launchFailed`/`.transportFailed` mean the mini was actually
-    /// unreachable; every other case (a protocol error, a backend failure, an
-    /// oversized or undecodable body) means a response came back, which is
-    /// itself proof the mini is there, so those count as connected too.
+    /// Only `.transportFailed` means the server was actually unreachable;
+    /// `.unauthorized`/`.notFound`/`.payloadTooLarge`/`.unprocessable`/
+    /// `.backend`/`.invalidResponse` all mean a response came back, which is
+    /// itself proof the server is there, so those count as connected too.
     /// `.requestEncoding`/`.remoteMisconfigured` are local/config issues
     /// unrelated to live reachability either way, so they leave the status
     /// alone instead of claiming either state on its behalf.
-    func noteFailure(_ error: DamsoServeError) {
+    func noteFailure(_ error: DamsoServerError) {
         switch error {
         case .remoteUpdateRequired:
             set(.versionMismatch)
-        case .launchFailed, .transportFailed:
+        case .transportFailed:
             set(.disconnected)
-        case .oversizedResponse, .protocolError, .backend, .invalidResponse:
+        case .unauthorized, .notFound, .conflict, .payloadTooLarge, .unprocessable, .backend, .invalidResponse:
             set(.connected)
         case .requestEncoding, .remoteMisconfigured:
             break
         }
     }
 
-    /// rsync-based paths (cache sync, outbox handoff, on-demand audio fetch)
-    /// only ever report a plain success/fail boolean, not a typed error, so
-    /// there is no protocol-error/backend-error distinction to preserve here.
+    /// Upload/download paths that only ever report a plain success/fail
+    /// boolean, not a typed error, so there is no protocol-error/backend-error
+    /// distinction to preserve here.
     func noteTransferResult(succeeded: Bool) {
         set(succeeded ? .connected : .disconnected)
     }

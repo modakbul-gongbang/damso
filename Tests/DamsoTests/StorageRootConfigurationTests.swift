@@ -59,15 +59,3 @@ func invalidOrMissingExplicitRootDoesNotFallbackToDefaultRoot() throws {
         try configuration.select(root: temporary.appendingPathComponent("does-not-exist", isDirectory: true))
     }
 }
-
-@Test
-func plaudSessionUsesOnlyThePlatformSecretBoundary() throws {
-    let backing = InMemorySecretStore()
-    let secrets = PlaudSessionSecretStore(backing: backing)
-
-    try secrets.save(Data("opaque-session".utf8))
-    #expect(try secrets.load() == Data("opaque-session".utf8))
-    #expect(try backing.read(service: DamsoSecrets.service, account: DamsoSecrets.plaudSessionAccount) == Data("opaque-session".utf8))
-    try secrets.clear()
-    #expect(try secrets.load() == nil)
-}

@@ -5,75 +5,125 @@ enum OutboxHandoffError: Error, Equatable {
     case transferFailed
 }
 
-/// The client-Mac implementation of `MeetingStoring`: reads come from a local
-/// cache directory kept in sync with the mini's canonical store (R7, T6),
-/// writes to an *existing* canonical record go to the mini through
-/// `damso.serve` (R1, R3). A brand-new record (recording start through the
-/// outbox handoff, R6/T7) instead lands in a local outbox first - it has no
-/// canonical counterpart yet for `damso.serve` to write to, and live audio
-/// capture must stream to local disk regardless of store mode (D-10: a
-/// network path as the recording target risks losing the meeting on a
-/// dropped connection). Every read method delegates to a plain `MeetingStore`
-/// pointed at the cache or outbox root instead of re-implementing file
-/// parsing - both are laid out identically to the canonical store, so the
-/// exact same logic that reads the real thing reads either mirror.
-/// `@unchecked`: every stored property is immutable and itself either
-/// `Sendable` or safe for concurrent read-only use (`cache`/`outbox`, see
-/// `MeetingStore`'s own `@unchecked Sendable`); needed so `@MainActor` call
-/// sites can call its async methods without a data-race error.
+/// The one `MeetingStoring` implementation the app now uses, local or
+/// remote (D-05: "local 모드도 HTTP 루프백으로 동일 구조") - reads and writes
+/// always go through the server daemon's `/v1` API (`DamsoHTTPClient`), never
+/// direct `MeetingStore` file access, except for the two directories this
+/// class owns itself: the outbox (a brand-new record has no server
+/// counterpart yet, D-10) and, in remote mode only, the local read cache
+/// (D-15). In local mode `cacheRoot` *is* the real canonical store directory
+/// - the daemon and this app share one disk, so there is nothing to mirror
+/// and `needsCacheSync` is false; in remote mode it is a separate mirror
+/// directory kept in sync with `/v1/changes`.
 final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
-    private let launcher: CommandLauncher
-    private let client: DamsoServeClient
-    /// Read-only from this class's perspective: T6's sync engine owns writing
-    /// into it. Never call one of `cache`'s own write methods here.
+    private let client: DamsoHTTPClient
+    private let connectionConfiguration: ServerConnectionConfiguration
+    private let needsCacheSync: Bool
+    /// Read-only from this class's perspective in remote mode (the changes
+    /// sync owns writing into it); in local mode this literally is the
+    /// canonical store, so any write reaching `cache` through `MeetingStore`
+    /// methods would be a real, direct canonical write - never call one of
+    /// `cache`'s own write methods here regardless of mode.
     private let cache: MeetingStore
-    /// This class owns the outbox directly (unlike `cache`): every write to a
-    /// not-yet-handed-off record goes through `outbox`'s own `MeetingStore`
-    /// methods, reusing its validated staging-then-atomic-move logic as-is.
     private let outbox: MeetingStore
-    /// Defaults to the process-wide singleton; tests inject a fresh instance
-    /// so a real "mini unreachable" outcome here never leaks into another
-    /// test's `connectionStatus` expectations.
     private let tracker: RemoteConnectivityTracker
+    private var lastSyncCursor: String?
 
-    init(launcher: CommandLauncher, cacheRoot: URL, outboxRoot: URL, tracker: RemoteConnectivityTracker = .shared) {
-        self.launcher = launcher
+    init(
+        client: DamsoHTTPClient,
+        connectionConfiguration: ServerConnectionConfiguration,
+        cacheRoot: URL,
+        outboxRoot: URL,
+        needsCacheSync: Bool,
+        tracker: RemoteConnectivityTracker = .shared
+    ) {
+        self.client = client
+        self.connectionConfiguration = connectionConfiguration
+        self.needsCacheSync = needsCacheSync
         self.tracker = tracker
-        self.client = DamsoServeClient(launcher: launcher, tracker: tracker)
         self.cache = MeetingStore(root: cacheRoot)
         self.outbox = MeetingStore(root: outboxRoot)
     }
 
+    /// True only when this instance talks to a genuinely remote daemon (a
+    /// different machine); false in local mode, where `cache` already is the
+    /// canonical store and "not yet transferred" cannot apply.
+    var isRemoteConnection: Bool { needsCacheSync }
+
     // MARK: Lifecycle
 
-    var isConfigured: Bool { launcher.configuration.remoteStoreRootPath != nil }
+    var isConfigured: Bool {
+        switch connectionConfiguration.mode {
+        case .local:
+            FileManager.default.fileExists(atPath: cache.rootURL.path)
+        case .remote:
+            connectionConfiguration.remoteStoreRootPath != nil
+        }
+    }
 
-    /// One R7 cache-sync pass (T8): pulls the include-listed metadata
-    /// artifacts from the mini into `cache`'s root. A no-op, not an error,
-    /// when remote execution isn't configured or the mini is unreachable.
+    /// D-15's incremental changelist sync: a no-op returning `true`
+    /// immediately in local mode (the "cache" already is the canonical
+    /// store), otherwise pulls everything `/v1/changes` reports changed
+    /// since the last cursor.
     @discardableResult
     func syncCache() async -> Bool {
-        await CacheSyncEngine(launcher: launcher, cacheRoot: cache.rootURL, tracker: tracker).sync()
+        guard needsCacheSync else { return true }
+        guard case .remote = connectionConfiguration.mode else { return false }
+        do {
+            try FileManager.default.createDirectory(at: cache.rootURL, withIntermediateDirectories: true)
+            let data = try client.changes(since: lastSyncCursor)
+            let response = try DamsoHTTPClient.decode(data, as: ChangesResponse.self)
+            for recording in response.recordings {
+                for filename in CacheSyncFileNames.perRecording {
+                    try? client.downloadFile(
+                        stem: recording.stem,
+                        filename: filename,
+                        to: cache.rootURL.appendingPathComponent("Plaud/recordings/\(recording.stem)/\(filename)")
+                    )
+                }
+            }
+            lastSyncCursor = response.cursor
+            tracker.noteSuccess()
+            return true
+        } catch let error as DamsoServerError {
+            tracker.noteFailure(error)
+            return false
+        } catch {
+            return false
+        }
     }
 
     func bootstrap() throws {
-        // The mini bootstraps the canonical store itself; the client only
-        // needs its local cache and outbox directories ready so reads and a
-        // new recording don't fail before the first sync/handoff.
-        try cache.bootstrap()
+        // The daemon bootstraps the canonical store itself; the client only
+        // needs its own outbox (and, remotely, its cache) directories ready.
+        if needsCacheSync {
+            try cache.bootstrap()
+        }
         try outbox.bootstrap()
     }
 
     func health() -> StorageHealth {
         guard isConfigured else {
-            return .unavailable("Remote execution is not configured. Set it up in Settings.")
+            return .unavailable("Server storage is not configured. Set it up in Settings.")
         }
-        return cache.health()
+        return needsCacheSync ? cache.health() : cache.health()
     }
 
     // MARK: Path resolution
 
-    var storeRootPath: String { launcher.configuration.remoteStoreRootPath ?? "" }
+    var storeRootPath: String {
+        switch connectionConfiguration.mode {
+        case .local:
+            cache.rootURL.path
+        case .remote:
+            connectionConfiguration.remoteStoreRootPath ?? ""
+        }
+    }
+
+    /// Always the local cache mirror, never `storeRootPath` - in remote mode
+    /// that string is the server's own filesystem path (see D-08/D-15), which
+    /// this Mac cannot write to.
+    var localRootURL: URL { cache.rootURL }
 
     var peoplesDirectoryPath: String {
         CanonicalStoreLayout(root: URL(fileURLWithPath: storeRootPath)).peoples.path
@@ -83,23 +133,18 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         CanonicalStoreLayout(root: URL(fileURLWithPath: storeRootPath)).recordDirectory(stem: stem).path
     }
 
-    /// The outbox copy while a record has not been handed off yet (including
-    /// while it is actively recording - this is exactly what native capture
-    /// streams audio into), the cache mirror once it has.
     func recordDirectoryURL(stem: String) -> URL {
         isOutboxOnly(stem: stem) ? outbox.recordDirectoryURL(stem: stem) : cache.recordDirectoryURL(stem: stem)
     }
 
-    /// A record with no cached (handed-off) counterpart is still outbox-only.
-    /// Checking the cache rather than the mini directly keeps every one of
-    /// these checks local and instant; the tradeoff (a small race between an
-    /// in-flight handoff and the next cache sync) only ever makes a check
-    /// answer "still outbox-only" a little late, never causes a wrong write.
-    /// Only while the record is still outbox-only. Once handed off, the cache
-    /// mirror holds metadata alone - the audio stays on the server and is
-    /// pulled on demand - so a local presence check would report a healthy
-    /// recording as missing.
-    func holdsRecordAudioLocally(stem: String) -> Bool { isOutboxOnly(stem: stem) }
+    /// Local mode: always true, since the "cache" is the real store and every
+    /// committed record's audio is right there. Remote mode: only while the
+    /// record has not been handed off, or once its audio has been pulled
+    /// on demand (D-15 excludes audio from the periodic sync by design).
+    func holdsRecordAudioLocally(stem: String) -> Bool {
+        guard needsCacheSync else { return true }
+        return isOutboxOnly(stem: stem)
+    }
 
     private func isOutboxOnly(stem: String) -> Bool {
         FileManager.default.fileExists(atPath: outbox.recordDirectoryURL(stem: stem).path) && (try? cache.load(stem: stem)) == nil
@@ -125,7 +170,7 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         isOutboxOnly(stem: stem) ? try outbox.checksum(stem: stem) : try cache.checksum(stem: stem)
     }
 
-    // MARK: Records - creation always starts in the outbox (R6)
+    // MARK: Records - creation always starts in the outbox (D-10: live capture streams to local disk regardless of mode)
 
     func createRecord(_ draft: MeetingDraft) throws -> MeetingRecord {
         try outbox.createRecord(draft)
@@ -135,11 +180,6 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         try outbox.commit(record, artifacts: artifacts)
     }
 
-    /// Unreachable in practice: External Sync only ever runs against a local
-    /// `MeetingStore` (D-A1/T14 confines it to the machine that owns the
-    /// canonical store), so this path exists only to satisfy the protocol.
-    /// Implemented for real rather than left throwing, since "unreachable
-    /// today" is not the same guarantee as "unreachable forever."
     func commitImported(_ record: MeetingRecord, movingAudioFrom audioURL: URL) throws {
         try outbox.commitImported(record, movingAudioFrom: audioURL)
     }
@@ -186,33 +226,43 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         try sendRecordOperation(InvalidateCleanupOverlayRequest(recordingDirectory: recordDirectoryPath(stem: stem)))
     }
 
-    // MARK: Outbox handoff (R6/T7)
+    // MARK: Outbox handoff (D-06, D-23): archive upload replaces rsync push + commit-record
 
-    /// Transfers one outbox record to the mini: rsync the outbox record
-    /// directory's contents into the mini's `.staging`, then atomically
-    /// promote it with `commit-record`. Idempotent in effect - a record with
-    /// no outbox copy left (already handed off) is treated as a no-op
-    /// success so a retry sweep never needs to track handoff state itself.
+    /// Packs the outbox record directory into a tar.gz archive and uploads it
+    /// in one request; the server extracts, validates, and atomically commits
+    /// it (`/v1/recordings`), then auto-enqueues phase-one (D-13). An
+    /// interrupted upload fails cleanly and nothing is committed - retry means
+    /// "upload the whole archive again" (D-23), and the outbox copy this
+    /// method reads from is untouched until that succeeds. Idempotent in
+    /// effect - a record with no outbox copy left is a no-op success.
     @discardableResult
     func handOff(stem: String) async throws -> Bool {
         let outboxDirectory = outbox.recordDirectoryURL(stem: stem)
         guard FileManager.default.fileExists(atPath: outboxDirectory.path) else {
             return false
         }
-        guard case .remote(let host, _) = launcher.configuration.mode else {
+        guard isConfigured else {
             throw OutboxHandoffError.remoteMisconfigured
         }
-        let stagingPath = storeRootPath + "/.staging/" + UUID().uuidString
-        try await push(host: host, from: outboxDirectory, to: stagingPath)
-        try sendRecordOperation(CommitRecordRequest(stagingDirectory: stagingPath, recordingDirectory: recordDirectoryPath(stem: stem)))
+        let archiveData: Data
+        do {
+            archiveData = try RecordingArchiver.archive(directory: outboxDirectory)
+        } catch {
+            throw OutboxHandoffError.transferFailed
+        }
+        let succeeded = await Task.detached(priority: .utility) { [client] in
+            (try? client.uploadRecording(archiveData: archiveData)) != nil
+        }.value
+        tracker.noteTransferResult(succeeded: succeeded)
+        guard succeeded else {
+            throw OutboxHandoffError.transferFailed
+        }
         return true
     }
 
-    /// One idempotent pass over outbox state, meant to be called after a
-    /// recording stops and by T9's periodic sweep so a handoff interrupted by
-    /// a disconnected mini resumes automatically once the connection is back
-    /// (R6, R9), without a live reconnect listener of its own: every step
-    /// here is safe to repeat and does nothing when there is nothing to do.
+    /// One idempotent pass over outbox state (D-23 retry, R9): a handoff
+    /// interrupted by a disconnected server resumes automatically once the
+    /// connection is back, without a live reconnect listener of its own.
     func retryPendingOutboxWork() async {
         guard let stems = try? outboxStems() else { return }
         for stem in stems {
@@ -223,11 +273,6 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         }
     }
 
-    /// Deletes only the outbox's audio copy for `stem`, and only once the
-    /// synced cache confirms phase-one completed on the mini (R6) - never
-    /// the meeting.json or hints, and never based on a local guess. Safe to
-    /// call before the cache has synced far enough to know: it just returns
-    /// false and changes nothing.
     @discardableResult
     func deleteOutboxAudioIfPhaseOneComplete(stem: String) -> Bool {
         guard cache.hasPhaseOneTranscript(stem: stem), let record = try? outbox.load(stem: stem) else {
@@ -240,11 +285,6 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         return true
     }
 
-    /// R9(d)'s "전송 대기 N건": outbox records that have not reached the
-    /// mini's cache yet, mirroring `retryPendingOutboxWork`'s own predicate
-    /// so the count and the sweep that clears it never disagree. Excludes a
-    /// record that has been handed off but is still waiting on the
-    /// audio-deletion gate - that one is no longer "pending transfer".
     func outboxPendingCount() -> Int {
         (try? outboxStems())?.filter { (try? cache.load(stem: $0)) == nil }.count ?? 0
     }
@@ -257,35 +297,43 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
             .map(\.lastPathComponent)
     }
 
-    /// rsync does not reliably shell-quote spaces in a remote-path argument;
-    /// a literal backslash-space is required (`RemoteAudioFetcher.pull`'s
-    /// same pitfall, mirrored here for the push direction). The trailing
-    /// slash on the source path copies the outbox record's *contents* into
-    /// the staging directory, not the directory itself nested one level deep.
-    private func push(host: String, from localDirectory: URL, to remotePath: String) async throws {
-        let escapedRemotePath = remotePath.replacingOccurrences(of: " ", with: "\\ ")
-        let succeeded = await Task.detached(priority: .utility) { () -> Bool in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["rsync", "-a", CommandLauncher.rsyncRemoteShellArgument, localDirectory.path + "/", "\(host):\(escapedRemotePath)/"]
-            process.environment = ProcessRuntime.environment()
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            do {
-                try process.run()
-            } catch {
-                return false
-            }
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        }.value
-        tracker.noteTransferResult(succeeded: succeeded)
-        guard succeeded else {
-            throw OutboxHandoffError.transferFailed
-        }
+    // MARK: Processing (D-13): trigger + poll, not spawn-and-wait
+
+    /// Uploads a just-stopped recording and lets the server's queue take it
+    /// from there (D-13). Replaces the SSH-era direct `runPhaseOne` call.
+    func triggerProcessing(stem: String) async throws {
+        _ = try await handOff(stem: stem)
     }
 
-    // MARK: People - reads mirror the cache, writes go through damso.serve
+    func processingStatus(stem: String) async throws -> ProcessingStatusResponse {
+        let data = try await Task.detached(priority: .utility) { [client] in
+            try client.status(stem: stem)
+        }.value
+        return try DamsoHTTPClient.decode(data, as: ProcessingStatusResponse.self)
+    }
+
+    func requeueProcessing(stem: String) async throws {
+        _ = try await Task.detached(priority: .utility) { [client] in
+            try client.requeue(stem: stem)
+        }.value
+    }
+
+    func triggerSummary(stem: String, agent: String, language: String, meetingDate: String?) async throws {
+        _ = try await Task.detached(priority: .utility) { [client] in
+            try client.triggerSummary(stem: stem, agent: agent, language: language, meetingDate: meetingDate)
+        }.value
+    }
+
+    /// Fetches one file directly (metadata or audio alike, D-15) - used
+    /// on-demand rather than through the periodic changes sync, e.g. to
+    /// confirm and pull a freshly produced `combined-audio.m4a`.
+    func pullFile(stem: String, filename: String, to destination: URL) async throws {
+        try await Task.detached(priority: .utility) { [client] in
+            try client.downloadFile(stem: stem, filename: filename, to: destination)
+        }.value
+    }
+
+    // MARK: People - reads mirror the cache, writes go through the server API
 
     func listPeople(records: [MeetingRecord]) throws -> [LocalPersonProfile] { try cache.listPeople(records: records) }
     func profileNotes(name: String) -> String? { cache.profileNotes(name: name) }
@@ -316,13 +364,6 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
     func cachedSpeakerSuggestions(stem: String) -> [String: [SpeakerSuggestion]] { cache.cachedSpeakerSuggestions(stem: stem) }
     func hasCachedSpeakerSuggestions(stem: String) -> Bool { cache.hasCachedSpeakerSuggestions(stem: stem) }
 
-    /// Cache-only for now: `damso.speaker_hints` has no persistence of its
-    /// own (Swift always wrote this file directly, unlike `damso.summary`
-    /// which writes `summary.json` itself) and there is no `damso.serve`
-    /// operation for it yet. The next rsync from the mini overwrites this
-    /// local write, costing one re-run of the regenerable hints agent - a
-    /// documented gap, not silent data loss, since nothing authoritative
-    /// lives only here.
     func writeSpeakerSuggestions(_ suggestions: [SpeakerSuggestion], stem: String) {
         cache.writeSpeakerSuggestions(suggestions, stem: stem)
     }
@@ -331,7 +372,7 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
     func storedSummary(stem: String) throws -> StructuredSummary? { try cache.storedSummary(stem: stem) }
     func storedSummaryArtifact(stem: String) throws -> StoredSummaryArtifact? { try cache.storedSummaryArtifact(stem: stem) }
 
-    // MARK: damso.serve request plumbing
+    // MARK: /v1/rpc request plumbing
 
     private func sendRecordOperation(_ request: some Encodable) throws {
         _ = try send(request) as OKResponse
@@ -339,8 +380,41 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
 
     private func send<Response: Decodable>(_ request: some Encodable) throws -> Response {
         let data = try client.send(request)
-        return try DamsoServeClient.decode(data, as: Response.self)
+        return try DamsoHTTPClient.decode(data, as: Response.self)
     }
+}
+
+enum CacheSyncFileNames {
+    /// Mirrors the SSH-era `CacheSyncEngine.includedFileNames`: metadata
+    /// only, never audio (D-15 keeps audio on-demand-only).
+    static let perRecording = [
+        "meeting.json",
+        "transcript.raw.json",
+        "transcript.json",
+        "transcript.md",
+        "transcript.cleaned.json",
+        "identification.json",
+        "summary.json",
+        "speaker_hints.json",
+        "resolutions.yaml",
+        "hint.json",
+        "participants.json",
+    ]
+}
+
+struct ChangesResponse: Decodable {
+    struct Entry: Decodable {
+        let stem: String
+    }
+    let cursor: String
+    let recordings: [Entry]
+}
+
+struct ProcessingStatusResponse: Decodable {
+    let stem: String
+    let state: String
+    let kind: String?
+    let error: String?
 }
 
 struct OKResponse: Decodable {
@@ -378,18 +452,6 @@ struct QuarantineRecordRequest: Encodable {
         case operation
         case recordingDirectory = "recording_directory"
         case reason
-    }
-}
-
-struct CommitRecordRequest: Encodable {
-    let operation = "commit-record"
-    let stagingDirectory: String
-    let recordingDirectory: String
-
-    enum CodingKeys: String, CodingKey {
-        case operation
-        case stagingDirectory = "staging_directory"
-        case recordingDirectory = "recording_directory"
     }
 }
 

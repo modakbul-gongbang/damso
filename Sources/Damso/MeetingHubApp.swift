@@ -12,6 +12,10 @@ final class DamsoRuntime: ObservableObject {
     let detection: MeetingDetectionCoordinator
     let externalSync: ExternalSyncController
     let notificationRouter: SummaryNotificationRouter
+    /// D-10/T7: local mode's own daemon lifecycle, self-guarding to a no-op
+    /// in remote mode (`LocalServerLifecycle.start()` checks
+    /// `ServerConnectionMode` itself).
+    let localServer: LocalServerLifecycle
 
     init() {
         let workspace = MeetingWorkspaceController()
@@ -21,12 +25,13 @@ final class DamsoRuntime: ObservableObject {
         notificationRouter = SummaryNotificationRouter()
         notificationRouter.workspace = workspace
         notificationRouter.attach()
+        localServer = LocalServerLifecycle(storeRootPath: { StorageRootConfiguration().rootURL.path })
+        localServer.start()
         MeetingParticipantCaptureWiring.attach(to: detection)
-        // R13/T14: the mini's server role never watches the mic or browser
-        // tabs, so it never triggers the TCC prompts detection would cause.
-        if workspace.role.detectsAndRecords {
-            detection.startMonitoring()
-        }
+        // D-09: there is no more headless "server role" Swift instance -
+        // the Python daemon owns that job now, local or remote. Every Swift
+        // app instance always detects and records.
+        detection.startMonitoring()
         externalSync.start()
         // Verification-only simulation (V7): inject a synthetic detected
         // meeting for ~20s, then let it end so the prompt-dismiss grace can
@@ -67,7 +72,12 @@ struct DamsoApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Damso", id: "main") {
+        // `Window`, not `WindowGroup`: the dashboard is one view over one
+        // shared workspace, so a second copy (File > New Window, or another
+        // openWindow call) just showed the same state twice. `Window` makes
+        // the scene single-instance - reopening brings the existing window
+        // forward instead.
+        Window("Damso", id: "main") {
             DesignReviewWindow(workspace: runtime.workspace, externalSync: runtime.externalSync)
                 .frame(minWidth: 1_120, minHeight: 720)
                 .onAppear {

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from damso import mcp
 from damso.index import index_path
-from damso.mcp import ReadOnlyStore, dispatch
+from damso.mcp import PROTOCOL_VERSION, ReadOnlyStore, dispatch
 
 
 LEGACY_SEARCH_KEYS = {"stem", "title", "source", "createdAt", "durationSeconds", "stage", "sensitive"}
@@ -48,6 +48,44 @@ def make_store(root: Path) -> ReadOnlyStore:
 
 
 class MCPTests(unittest.TestCase):
+    def test_initialize_handshake_answers_before_any_tool_call(self):
+        """A compliant MCP client sends `initialize` first and refuses to go
+        further without a valid result. Answering it with -32601 (which this
+        server did until the endpoint was first tried against a real client)
+        means no client can ever reach `tools/list`, no matter how correct the
+        tools themselves are."""
+        with tempfile.TemporaryDirectory() as temporary:
+            store = make_store(Path(temporary))
+            response = dispatch(store, {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "c", "version": "0"}},
+            })
+
+            self.assertNotIn("error", response)
+            result = response["result"]
+            self.assertEqual(result["protocolVersion"], "2025-06-18")
+            self.assertIn("tools", result["capabilities"])
+            self.assertEqual(result["serverInfo"]["name"], "damso")
+
+    def test_initialize_falls_back_to_our_latest_for_an_unknown_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = make_store(Path(temporary))
+            response = dispatch(store, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "1999-01-01"}})
+
+            self.assertEqual(response["result"]["protocolVersion"], PROTOCOL_VERSION)
+
+    def test_notifications_get_no_reply_and_ping_gets_an_empty_result(self):
+        """A notification has no `id` and by definition takes no response;
+        replying to one with a null-id envelope makes a strict client treat
+        the stream as malformed."""
+        with tempfile.TemporaryDirectory() as temporary:
+            store = make_store(Path(temporary))
+
+            self.assertIsNone(dispatch(store, {"jsonrpc": "2.0", "method": "notifications/initialized"}))
+            self.assertEqual(dispatch(store, {"jsonrpc": "2.0", "id": 7, "method": "ping"})["result"], {})
+
     def test_search_and_read_are_local_and_non_mutating(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

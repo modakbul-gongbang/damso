@@ -1,6 +1,6 @@
 """Narrow, auditable boundaries around the signed-in local agent CLIs.
 
-Meeting Hub sends transcript text through exactly one of two boundaries:
+Damso sends transcript text through exactly one of two boundaries:
 the Claude Code CLI or the Codex CLI, selected by the app's default-agent
 setting. Every boundary runs the CLI in an empty temporary working directory
 under a sandbox-exec profile that denies the meeting store, with built-in

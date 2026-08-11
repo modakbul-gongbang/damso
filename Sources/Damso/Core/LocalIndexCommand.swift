@@ -5,39 +5,35 @@ struct LocalIndexResult: Decodable, Equatable, Sendable {
     let meetings: Int?
 }
 
+struct LocalIndexRebuildRequest: Encodable, Sendable {
+    let operation = "rebuild-index"
+    let storeRoot: String
+
+    enum CodingKeys: String, CodingKey {
+        case operation
+        case storeRoot = "store_root"
+    }
+}
+
 enum LocalIndexCommandError: Error, Equatable {
     case launchFailed
     case failed
     case invalidResponse
 }
 
-/// Rebuilds the derived SQLite search index from canonical files by invoking
-/// the fixed local Python module. The index is a cache: a failed rebuild
-/// never blocks the pipeline and never touches meeting files.
+/// Rebuilds the derived SQLite search index from canonical files (D-06:
+/// `/v1/rpc` over HTTP instead of a spawned/ssh'd `damso.index` process).
+/// The index is a cache: a failed rebuild never blocks the pipeline and
+/// never touches meeting files.
 enum LocalIndexProcessRunner {
-    private static let maximumResponseBytes = 64 * 1_024
-
-    static func rebuild(storeRoot: String, pythonExecutable: String = "python3", launcher: CommandLauncher = CommandLauncher()) throws -> LocalIndexResult {
-        let argv: [String]
-        switch launcher.configuration.mode {
-        case .local:
-            argv = [pythonExecutable, "-m", "damso.index", "--store", storeRoot]
-        case .remote:
-            argv = launcher.argv(module: "damso.index", moduleArguments: ["--store", storeRoot])
-        }
-
-        let output: CommandLauncherOutput
+    static func rebuild(storeRoot: String, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalIndexResult {
+        let data: Data
         do {
-            output = try launcher.run(argv: argv, maximumResponseBytes: maximumResponseBytes)
-        } catch CommandLauncherError.oversizedResponse {
-            throw LocalIndexCommandError.failed
+            data = try client.send(LocalIndexRebuildRequest(storeRoot: storeRoot))
         } catch {
             throw LocalIndexCommandError.launchFailed
         }
-        guard output.terminationStatus == 0 else {
-            throw LocalIndexCommandError.failed
-        }
-        guard let result = try? JSONDecoder().decode(LocalIndexResult.self, from: output.data), result.ok else {
+        guard let result = try? JSONDecoder().decode(LocalIndexResult.self, from: data), result.ok else {
             throw LocalIndexCommandError.invalidResponse
         }
         return result

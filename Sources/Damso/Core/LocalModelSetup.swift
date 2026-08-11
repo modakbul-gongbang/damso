@@ -70,30 +70,38 @@ enum LocalModelSetupState: Equatable {
     }
 }
 
+/// Local models are entirely the server machine's concern now (D-05/D-11: a
+/// single `damso-server` daemon owns processing, local or remote, and
+/// `make install-server`/`make install-local-models` manage its models).
+/// This Settings panel only ever makes sense on the machine that will run
+/// `make install-server` - a plain local `Process` spawn, never routed
+/// through the HTTP client or any remote transport.
 enum LocalModelSetupProcessRunner {
     private static let unavailable = LocalModelSetupResult(ok: false, whisperReady: nil, sherpaReady: nil, errorCode: "model_setup_unavailable")
 
-    static func run(_ command: LocalModelSetupCommand, launcher: CommandLauncher = CommandLauncher()) -> LocalModelSetupResult {
-        let argv: [String]
-        switch launcher.configuration.mode {
-        case .local:
-            argv = command.arguments
-        case .remote:
-            argv = launcher.argv(module: "damso.model_setup", moduleArguments: Array(command.arguments.dropFirst(3)))
-        }
+    static func run(_ command: LocalModelSetupCommand) -> LocalModelSetupResult {
         let inherited = ProcessInfo.processInfo.environment
         let environment = [
             "HOME": inherited["HOME"] ?? NSHomeDirectory(),
             "LANG": inherited["LANG"] ?? "en_US.UTF-8",
             "PATH": inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
         ]
-
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = command.arguments
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
         do {
-            let output = try launcher.run(argv: argv, environment: environment, maximumResponseBytes: 64 * 1_024)
-            return (try? JSONDecoder().decode(LocalModelSetupResult.self, from: output.data)) ?? unavailable
+            try process.run()
         } catch {
             return unavailable
         }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return unavailable }
+        return (try? JSONDecoder().decode(LocalModelSetupResult.self, from: data)) ?? unavailable
     }
 }
 

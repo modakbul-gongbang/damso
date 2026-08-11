@@ -102,9 +102,9 @@ final class ExternalSyncController: ObservableObject {
         self.providers = providers
         self.notifier = notifier
         self.defaults = defaults
-        guard let store = workspace.meetingStore else {
-            // Remote-mode clients don't own the canonical store locally;
-            // leave providerStates/engines empty so sync stays a no-op.
+        guard let storeRoot = workspace.externalSyncStoreRootURL else {
+            // Storage is not configured at all yet; leave
+            // providerStates/engines empty so sync stays a no-op.
             return
         }
         providerStates = providers.map { provider in
@@ -114,13 +114,13 @@ final class ExternalSyncController: ObservableObject {
         }
         for provider in providers {
             let checkpointStore = ExternalSyncCheckpointStore(
-                fileURL: ExternalSyncCheckpointStore.fileURL(storeRoot: store.rootURL, providerID: provider.id)
+                fileURL: ExternalSyncCheckpointStore.fileURL(storeRoot: storeRoot, providerID: provider.id)
             )
             engines[provider.id] = ExternalSyncEngine(
                 provider: provider,
                 scheduler: scheduler,
                 checkpointStore: checkpointStore,
-                importSink: Self.makeImportSink(providerID: provider.id, storeRoot: store.rootURL, workspace: workspace)
+                importSink: Self.makeImportSink(providerID: provider.id, workspace: workspace)
             )
         }
     }
@@ -136,10 +136,12 @@ final class ExternalSyncController: ObservableObject {
     }
 
     /// Internal (not private) so the regression suite can drive the exact
-    /// production import path against a temporary store.
+    /// production import path against a temporary store. D-14: imports go
+    /// through the same outbox+upload+commit path as a manually stopped
+    /// recording, on the main actor (the store instance itself is not
+    /// thread-safe), instead of writing a bare `MeetingStore` directly.
     nonisolated static func makeImportSink(
         providerID: String,
-        storeRoot: URL,
         workspace: MeetingWorkspaceController
     ) -> ExternalSyncEngine.ImportSink {
         { [weak workspace] recording, audioFile in
@@ -156,17 +158,14 @@ final class ExternalSyncController: ObservableObject {
             )
             record.originalAudioFile = audioFile.lastPathComponent
             do {
-                // A store instance is not thread-safe; the sink runs off the
-                // main actor, so it commits through its own instance against
-                // the same canonical root.
-                try MeetingStore(root: storeRoot).commitImported(record, movingAudioFrom: audioFile)
+                try await MainActor.run {
+                    try workspace?.importExternalRecording(record, movingAudioFrom: audioFile)
+                    workspace?.noteExternalImport(stem: stem)
+                }
             } catch MeetingStoreError.duplicateMeeting {
                 // The meeting already exists locally; count as imported so the
                 // watermark can advance instead of retrying forever.
                 return
-            }
-            await MainActor.run {
-                workspace?.noteExternalImport(stem: stem)
             }
         }
     }

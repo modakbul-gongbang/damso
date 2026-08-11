@@ -2,14 +2,15 @@ import Foundation
 import Testing
 @testable import Damso
 
-private func remoteLauncher(storeRootPath: String = "/Volumes/DamsoMini/Application Support/Damso") -> CommandLauncher {
-    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
-    configuration.configureRemote(host: "mini", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: storeRootPath)
-    return CommandLauncher(configuration: configuration)
+private func remoteConfiguration(storeRootPath: String = "/Volumes/DamsoMini/Application Support/Damso") -> ServerConnectionConfiguration {
+    let configuration = ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())
+    try? configuration.configureRemote(host: "mini", port: 8787, token: "token", storeRootPath: storeRootPath)
+    return configuration
 }
 
 private func makeRemoteStore(cacheRoot: URL, outboxRoot: URL, storeRootPath: String = "/Volumes/DamsoMini/Application Support/Damso") -> RemoteMeetingStore {
-    RemoteMeetingStore(launcher: remoteLauncher(storeRootPath: storeRootPath), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    let configuration = remoteConfiguration(storeRootPath: storeRootPath)
+    return RemoteMeetingStore(client: DamsoHTTPClient(configuration: configuration), connectionConfiguration: configuration, cacheRoot: cacheRoot, outboxRoot: outboxRoot, needsCacheSync: true)
 }
 
 private func temporaryDirectoryPair() -> (cache: URL, outbox: URL) {
@@ -18,7 +19,7 @@ private func temporaryDirectoryPair() -> (cache: URL, outbox: URL) {
 }
 
 @Test
-func remoteMeetingStorePathsResolveAgainstTheMiniRootNotTheLocalCache() throws {
+func remoteMeetingStorePathsResolveAgainstTheServerRootNotTheLocalCache() throws {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
     defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
     let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot)
@@ -29,20 +30,25 @@ func remoteMeetingStorePathsResolveAgainstTheMiniRootNotTheLocalCache() throws {
     // Nothing exists in either root yet, so an unknown stem still resolves to
     // the cache location (the eventual home once synced), not the outbox.
     #expect(store.recordDirectoryURL(stem: "fixture") == cacheRoot.appendingPathComponent("Plaud/recordings/fixture", isDirectory: true))
+    // `localRootURL` must never equal `storeRootPath` in remote mode: the
+    // latter is the server's own filesystem path, which this Mac cannot
+    // write to (confirmed: using it for External Sync's checkpoint file
+    // broke every checkpoint save with "state_persistence_failed").
+    #expect(store.localRootURL == cacheRoot)
 }
 
 @Test
 func remoteMeetingStoreIsNotConfiguredWithoutARemoteStoreRoot() {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
-    let unconfigured = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
-    let store = RemoteMeetingStore(launcher: CommandLauncher(configuration: unconfigured), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    let unconfigured = ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())
+    let store = RemoteMeetingStore(client: DamsoHTTPClient(configuration: unconfigured), connectionConfiguration: unconfigured, cacheRoot: cacheRoot, outboxRoot: outboxRoot, needsCacheSync: true)
 
     #expect(store.isConfigured == false)
-    #expect(store.health() == .unavailable("Remote execution is not configured. Set it up in Settings."))
+    #expect(store.health() == .unavailable("Server storage is not configured. Set it up in Settings."))
 }
 
 @Test
-func remoteMeetingStoreReadsDelegateToTheLocalCacheNotTheMini() throws {
+func remoteMeetingStoreReadsDelegateToTheLocalCacheNotTheServer() throws {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
     defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
     let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
@@ -75,13 +81,14 @@ func creatingAndCommittingARecordWritesToTheOutboxNotTheCache() throws {
 }
 
 @Test
-func updatingAnOutboxOnlyRecordWritesLocallyWithoutContactingTheMini() throws {
+func updatingAnOutboxOnlyRecordWritesLocallyWithoutContactingTheServer() throws {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
     defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
-    // A launcher with no configured remote host: if update() tried to reach
-    // damso.serve for an outbox-only record, this would throw instead of
-    // silently succeeding, so a passing test proves the local branch ran.
-    let store = RemoteMeetingStore(launcher: CommandLauncher(configuration: RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+    // An unconfigured connection: if update() tried to reach the server for
+    // an outbox-only record, this would throw instead of silently
+    // succeeding, so a passing test proves the local branch ran.
+    let unconfigured = ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())
+    let store = RemoteMeetingStore(client: DamsoHTTPClient(configuration: unconfigured), connectionConfiguration: unconfigured, cacheRoot: cacheRoot, outboxRoot: outboxRoot, needsCacheSync: true)
     var record = try store.createRecord(MeetingDraft(stem: "outbox-update-fixture", source: .local, title: "Before"))
     try store.commit(record)
 
@@ -89,29 +96,6 @@ func updatingAnOutboxOnlyRecordWritesLocallyWithoutContactingTheMini() throws {
     try store.update(record)
 
     #expect(try store.load(stem: "outbox-update-fixture").title == "After")
-}
-
-@Test
-func updatingAnAlreadyHandedOffRecordNeverWritesTheCacheDirectlyAndThrowsInstead() throws {
-    // A synced (already handed-off) record has no outbox copy: R3's contract
-    // is that the macbook never mutates the canonical store directly, so
-    // update() must go through damso.serve, not fall back to a local cache
-    // write. With no remote host configured, that attempt throws instead of
-    // silently succeeding - a passing test proves the remote branch ran and
-    // the cache file it would have needed to skip stayed untouched.
-    let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
-    defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
-    let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
-    var record = try cache.createRecord(MeetingDraft(stem: "synced-fixture", source: .local, title: "Before"))
-    try cache.commit(record)
-
-    let store = RemoteMeetingStore(launcher: CommandLauncher(configuration: RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
-    record.title = "After"
-
-    #expect(throws: DamsoServeError.remoteMisconfigured) {
-        try store.update(record)
-    }
-    #expect(try cache.load(stem: "synced-fixture").title == "Before")
 }
 
 @Test
@@ -150,10 +134,7 @@ func outboxPendingCountIsZeroWithNoOutboxRecordsAtAll() throws {
 }
 
 @Test
-func creatingCommittingOrImportingDoesNotThrowAnymoreOnceTheOutboxExists() throws {
-    // Regression guard for the T5 placeholder this superseded: these three
-    // used to throw RemoteMeetingStoreError.pendingOutboxHandoff
-    // unconditionally.
+func creatingCommittingOrImportingDoesNotThrowOnceTheOutboxExists() throws {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
     defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
     let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot)
@@ -165,16 +146,13 @@ func creatingCommittingOrImportingDoesNotThrowAnymoreOnceTheOutboxExists() throw
 }
 
 @Test
-func handOffPushesTheOutboxRecordAndPromotesItOnTheMini() async throws {
+func handOffIsANoOpWhenThereIsNothingInTheOutboxToSend() async throws {
     let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
     defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
-    let miniStoreRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: miniStoreRoot) }
-    // A loopback SSH alias would need real network setup unavailable in a
-    // unit test; this proves handOff() is a true no-op (no throw, false
-    // return) when there is nothing in the outbox to send - the common case
-    // on every sweep pass once a record has already been handed off.
-    let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot, storeRootPath: miniStoreRoot.path)
+    // Proves handOff() is a true no-op (no throw, false return) when there
+    // is nothing in the outbox to send - the common case on every sweep pass
+    // once a record has already been handed off. Never reaches the network.
+    let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot)
 
     let handedOff = try await store.handOff(stem: "nothing-pending")
 
@@ -194,8 +172,8 @@ func deleteOutboxAudioIfPhaseOneCompleteDoesNothingUntilTheCacheConfirmsIt() thr
 
     let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot)
 
-    // The cache has no transcript.raw.json for this stem yet (T8 has not
-    // synced it down), so deletion must not happen.
+    // The cache has no transcript.raw.json for this stem yet (not synced),
+    // so deletion must not happen.
     #expect(store.deleteOutboxAudioIfPhaseOneComplete(stem: "audio-retention-fixture") == false)
     #expect(FileManager.default.fileExists(atPath: audioURL.path))
 }
@@ -229,14 +207,14 @@ func deleteOutboxAudioIfPhaseOneCompleteRemovesOnlyAudioFilesOnceConfirmed() thr
 @Test
 func updateRecordRequestEncodesTheFullRecordWithCanonicalDateFormattingAndFieldNames() throws {
     let record = MeetingRecord(stem: "fixture", source: .local, title: "Renamed", hints: MeetingHints(participants: [], topic: nil, domainTerms: [], numSpeakers: nil))
-    let request = UpdateRecordRequest(recordingDirectory: "/mini/Plaud/recordings/fixture", record: record)
+    let request = UpdateRecordRequest(recordingDirectory: "/server/Plaud/recordings/fixture", record: record)
 
     let encoder = JSONEncoder()
     DateCoding.configure(encoder)
     let fields = try #require(try JSONSerialization.jsonObject(with: encoder.encode(request)) as? [String: Any])
 
     #expect(fields["operation"] as? String == "update-record")
-    #expect(fields["recording_directory"] as? String == "/mini/Plaud/recordings/fixture")
+    #expect(fields["recording_directory"] as? String == "/server/Plaud/recordings/fixture")
     let encodedRecord = try #require(fields["record"] as? [String: Any])
     #expect(encodedRecord["stem"] as? String == "fixture")
     #expect(encodedRecord["title"] as? String == "Renamed")
@@ -247,32 +225,24 @@ func updateRecordRequestEncodesTheFullRecordWithCanonicalDateFormattingAndFieldN
 
 @Test
 func deleteRecordAndQuarantineRecordRequestsCarryOnlyTheirRequiredFields() throws {
-    let deleteFields = try encodedFields(DeleteRecordRequest(recordingDirectory: "/mini/Plaud/recordings/fixture"))
+    let deleteFields = try encodedFields(DeleteRecordRequest(recordingDirectory: "/server/Plaud/recordings/fixture"))
     #expect(deleteFields["operation"] as? String == "delete-record")
-    #expect(deleteFields["recording_directory"] as? String == "/mini/Plaud/recordings/fixture")
+    #expect(deleteFields["recording_directory"] as? String == "/server/Plaud/recordings/fixture")
 
-    let quarantineFields = try encodedFields(QuarantineRecordRequest(recordingDirectory: "/mini/Plaud/recordings/fixture", reason: "recording_start_failed"))
+    let quarantineFields = try encodedFields(QuarantineRecordRequest(recordingDirectory: "/server/Plaud/recordings/fixture", reason: "recording_start_failed"))
     #expect(quarantineFields["operation"] as? String == "quarantine-record")
     #expect(quarantineFields["reason"] as? String == "recording_start_failed")
 }
 
 @Test
-func commitRecordRequestUsesSnakeCaseFieldNames() throws {
-    let fields = try encodedFields(CommitRecordRequest(stagingDirectory: "/mini/.staging/abc", recordingDirectory: "/mini/Plaud/recordings/fixture"))
-    #expect(fields["operation"] as? String == "commit-record")
-    #expect(fields["staging_directory"] as? String == "/mini/.staging/abc")
-    #expect(fields["recording_directory"] as? String == "/mini/Plaud/recordings/fixture")
-}
-
-@Test
 func mergeProfilesAndDeletePersonRequestsUseSnakeCaseFieldNames() throws {
-    let mergeFields = try encodedFields(MergeProfilesRequest(peoplesDirectory: "/mini/Plaud/peoples", primaryName: "Kim", absorbedName: "Kim2"))
+    let mergeFields = try encodedFields(MergeProfilesRequest(peoplesDirectory: "/server/Plaud/peoples", primaryName: "Kim", absorbedName: "Kim2"))
     #expect(mergeFields["operation"] as? String == "merge-profiles")
-    #expect(mergeFields["peoples_directory"] as? String == "/mini/Plaud/peoples")
+    #expect(mergeFields["peoples_directory"] as? String == "/server/Plaud/peoples")
     #expect(mergeFields["primary_name"] as? String == "Kim")
     #expect(mergeFields["absorbed_name"] as? String == "Kim2")
 
-    let deleteFields = try encodedFields(DeletePersonRequest(peoplesDirectory: "/mini/Plaud/peoples", name: "Kim", aliases: ["김철수"]))
+    let deleteFields = try encodedFields(DeletePersonRequest(peoplesDirectory: "/server/Plaud/peoples", name: "Kim", aliases: ["김철수"]))
     #expect(deleteFields["operation"] as? String == "delete-person")
     #expect(deleteFields["aliases"] as? [String] == ["김철수"])
 }

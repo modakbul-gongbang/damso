@@ -38,24 +38,13 @@ if [[ -d "$module_bundle" ]]; then
   cp -R "$module_bundle" "$resources/"
 fi
 
-# The Python helper package's source rides inside the bundle so Settings can
-# provision a server Mac over SSH without a git checkout or Xcode there
-# (RemoteSetupService reads it from Contents/Resources/server-src). Source
-# only, about 800KB: never models, a virtualenv, or build metadata. The layout
-# has to mirror the repository root because pyproject.toml declares
-# package-dir = {"" = "backend"}.
-server_src="$resources/server-src"
-# The bundled rsync (2.6.9) does not create missing parent directories for its
-# destination, so the full path has to exist before the copy.
-mkdir -p "$server_src/backend/damso"
-rsync -a --delete \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  "$repo_root/backend/damso/" "$server_src/backend/damso/"
-cp "$repo_root/pyproject.toml" "$server_src/pyproject.toml"
-if [[ -f "$repo_root/requirements-local.txt" ]]; then
-  cp "$repo_root/requirements-local.txt" "$server_src/requirements-local.txt"
-fi
+# No Python source rides inside the bundle. It used to: `RemoteSetupService`
+# copied `Contents/Resources/server-src` to a server Mac over SSH so Settings
+# could provision one without a git checkout there. ADR 0002 deleted that
+# service (the server is installed on its own machine with
+# `make install-server`), and ADR 0003 removed the last of the SSH-era
+# transport, so nothing has read the directory since. Rebuilding it every
+# install shipped ~350KB of dead weight.
 
 # Generate the token-drawn app icon from the binary itself so the bundle icon
 # always matches the in-app Dock/menu-bar identity.
@@ -92,6 +81,16 @@ plutil -insert NSCalendarsFullAccessUsageDescription -string "Damso adds dated m
 # Without this key macOS silently denies Apple Events (no prompt), which
 # breaks the AppleScript tab checks used for Chrome/Safari meeting detection.
 plutil -insert NSAppleEventsUsageDescription -string "Damso checks browser tabs for an active meeting only while that browser is using the microphone." "$plist"
+# ADR 0003: Damso talks to its own daemon over plain HTTP - loopback in local
+# mode, and a server Mac the operator owns in remote mode - so App Transport
+# Security's default cleartext block has to be lifted or no request reaches
+# either. A narrower per-domain exception is not possible: a paired server's
+# hostname is whatever the operator typed at pairing time, not a value known
+# when this bundle is built. The security boundary this leaves in place is
+# the bearer token plus the operator's own private network (Tailscale, a VPN,
+# or a trusted LAN), which the pairing pane warns about when the address does
+# not look private; local loopback traffic never leaves the machine at all.
+plutil -insert NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' "$plist"
 plutil -lint "$plist" >/dev/null
 
 mkdir -p "$HOME/Applications"

@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unicodedata
 import uuid
 import wave
@@ -721,6 +722,22 @@ def deferred_processing_termination_handlers(
     force_stop: Callable[[], None],
 ) -> Iterator[Callable[[], None]]:
     """Defer a spawn-time signal until the parent owns the child process handle."""
+    if threading.current_thread() is not threading.main_thread():
+        # Python only allows signal handler installation from the main
+        # thread. This scope was written for the SSH-era CLI, where phase-one
+        # ran as its own process (main thread by definition); under the HTTP
+        # server the same code runs on the ProcessingQueue's worker thread,
+        # where `signal.signal` raises and killed every real re-transcription
+        # (found via a real two-machine run: the very first server-side
+        # phase-one failed with "signal only works in main thread"). The
+        # handlers exist to translate a Ctrl-C/SIGTERM of the *CLI* into a
+        # graceful child teardown; in the server that lifecycle belongs to
+        # launchd stopping the whole service, so skipping them loses nothing
+        # the server relies on.
+        def arm_noop() -> None:
+            return
+        yield arm_noop
+        return
     selected_signals = (signal.SIGTERM, signal.SIGHUP)
     previous = {selected: signal.getsignal(selected) for selected in selected_signals}
     request_count = 0
@@ -893,6 +910,22 @@ class MLXWhisperTranscriber:
             except (UnicodeError, json.JSONDecodeError) as error:
                 raise ProcessingError("mlx-whisper worker produced invalid transcript segments") from error
             return normalize_mlx_segments(payload)
+
+
+def make_transcriber(config: LocalModelConfig, environment: Mapping[str, str] | None = None) -> Transcriber:
+    """The one place phase-one picks a `Transcriber` implementation (D-20):
+    isolating the selection here, rather than constructing
+    `MLXWhisperTranscriber` inline at the call site, is what "the transcription
+    engine lives behind one interface" means in practice - a non-Apple-Silicon
+    backend is a new branch here, not a change to `LocalProcessingPipeline` or
+    anything that runs after transcription. mlx-whisper is the only backend
+    this release ships; the seam exists so that stays true without a rewrite.
+    """
+    environment = environment if environment is not None else os.environ
+    backend = environment.get("DAMSO_TRANSCRIBER_BACKEND", "mlx-whisper")
+    if backend == "mlx-whisper":
+        return MLXWhisperTranscriber(config)
+    raise ProcessingError(f"unsupported DAMSO_TRANSCRIBER_BACKEND: {backend!r}")
 
 
 class ReplayTranscriber:
@@ -1311,7 +1344,7 @@ def execute_request(request: Mapping[str, Any], environment: Mapping[str, str] |
         config = LocalModelConfig.from_environment(environment)
         diarizer = SherpaDiarizer(config)
         diarizer.boundary_cache_path = recording_directory / BOUNDARY_CACHE_FILENAME
-        pipeline = LocalProcessingPipeline(MLXWhisperTranscriber(config), diarizer)
+        pipeline = LocalProcessingPipeline(make_transcriber(config, environment), diarizer)
         transcript = pipeline.run_phase_one(
             recording_directory,
             processing_audio_path,
@@ -1694,7 +1727,7 @@ def public_error(error: Exception) -> dict[str, str]:
     if isinstance(error, FileNotFoundError) or "canonical" in text or "audio_path" in text or "recording_directory" in text or "peoples_directory" in text:
         return {
             "code": "invalid_local_processing_request",
-            "next_action": "Retry from the Meeting Hub canonical record. No file outside that record was read or written.",
+            "next_action": "Retry from the Damso canonical record. No file outside that record was read or written.",
         }
     return {
         "code": "local_processing_failed",
@@ -1705,7 +1738,7 @@ def public_error(error: Exception) -> dict[str, str]:
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Meeting Hub local processing boundary")
+    parser = argparse.ArgumentParser(description="Damso local processing boundary")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--request", choices=["-"], help="Read one JSON request from stdin")
     mode.add_argument("--whisper-worker", choices=["-"], help=argparse.SUPPRESS)

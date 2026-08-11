@@ -1,23 +1,13 @@
 import Foundation
 
-struct LocalSpeakerHintsCommand: Equatable, Sendable {
-    let pythonExecutable: String
-
-    init(pythonExecutable: String = "python3") {
-        self.pythonExecutable = pythonExecutable
-    }
-
-    var arguments: [String] {
-        [pythonExecutable, "-m", "damso.speaker_hints", "--request", "-"]
-    }
-}
-
 struct LocalSpeakerHintsRequest: Encodable, Sendable {
+    let operation = "speaker-hints"
     let recordingDirectory: String
     let agent: String
     let language: String
 
     enum CodingKeys: String, CodingKey {
+        case operation
         case recordingDirectory = "recording_directory"
         case agent
         case language
@@ -74,37 +64,16 @@ enum LocalSpeakerHintsCommandError: Error, Equatable {
 }
 
 enum LocalSpeakerHintsProcessRunner {
-    private static let maximumResponseBytes = 64 * 1_024
-
-    static func run(_ request: LocalSpeakerHintsRequest, command: LocalSpeakerHintsCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalSpeakerHintsResult {
-        let input: Data
+    static func run(_ request: LocalSpeakerHintsRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalSpeakerHintsResult {
+        let data: Data
         do {
-            input = try JSONEncoder().encode(request)
-        } catch {
-            throw LocalSpeakerHintsCommandError.requestEncoding
-        }
-
-        let argv: [String]
-        switch launcher.configuration.mode {
-        case .local:
-            argv = command.arguments
-        case .remote:
-            argv = launcher.argv(module: "damso.speaker_hints", moduleArguments: ["--request", "-"])
-        }
-
-        let output: CommandLauncherOutput
-        do {
-            output = try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
-        } catch CommandLauncherError.oversizedResponse {
+            data = try client.send(request)
+        } catch DamsoServerError.payloadTooLarge {
             throw LocalSpeakerHintsCommandError.oversizedResponse
         } catch {
             throw LocalSpeakerHintsCommandError.launchFailed
         }
-
-        guard output.terminationStatus == 0 else {
-            throw LocalSpeakerHintsCommandError.failed
-        }
-        guard let result = try? JSONDecoder().decode(LocalSpeakerHintsResult.self, from: output.data) else {
+        guard let result = try? JSONDecoder().decode(LocalSpeakerHintsResult.self, from: data) else {
             throw LocalSpeakerHintsCommandError.invalidResponse
         }
         return result

@@ -1,4 +1,4 @@
-"""Read-only local stdio MCP server for canonical Meeting Hub records.
+"""Read-only local stdio MCP server for canonical Damso records.
 
 Search runs against the rebuildable SQLite index (``index.sqlite3``) derived
 from the file store, while full meeting and profile payloads are still read
@@ -23,6 +23,14 @@ from .people import read_profile
 # zero rows regardless of what the index contains. search()/search_people()
 # fall back to a plain substring LIKE scan under this length instead.
 TRIGRAM_MINIMUM_LENGTH = 3
+
+
+# MCP revisions this server can speak. A client announces the revision it
+# wants in `initialize`; the spec says answer with that same revision when we
+# support it, and with our own latest when we do not, so the client can decide
+# whether to continue. Ordered newest first - the head is what we advertise.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
 class SearchBackendUnavailable(RuntimeError):
@@ -292,9 +300,45 @@ def public_metadata_from_row(row: Any, record: Mapping[str, Any]) -> dict[str, A
     return metadata
 
 
-def dispatch(store: ReadOnlyStore, request: Mapping[str, Any]) -> dict[str, Any]:
+def server_info() -> dict[str, str]:
+    try:
+        from importlib import metadata as importlib_metadata
+
+        version = importlib_metadata.version("damso")
+    except Exception:
+        version = "0"
+    return {"name": "damso", "version": version}
+
+
+def initialize_result(params: Mapping[str, Any]) -> dict[str, Any]:
+    requested = params.get("protocolVersion")
+    negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
+    return {
+        "protocolVersion": negotiated,
+        # Tools only: this server has no prompts, resources, or sampling, and
+        # advertising a capability it cannot serve would make a client offer
+        # the user something that then fails.
+        "capabilities": {"tools": {}},
+        "serverInfo": server_info(),
+    }
+
+
+def dispatch(store: ReadOnlyStore, request: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Returns the JSON-RPC response, or None for a notification, which by
+    definition takes no reply."""
     request_id = request.get("id")
     method = request.get("method")
+    is_notification = "id" not in request
+
+    # The handshake every MCP client performs before it will use any tool.
+    # Without it a compliant client never gets as far as `tools/list`.
+    if method == "initialize":
+        return success(request_id, initialize_result(request.get("params") or {}))
+    if is_notification:
+        # `notifications/initialized` and friends: acknowledged by silence.
+        return None
+    if method == "ping":
+        return success(request_id, {})
     if method == "tools/list":
         return success(request_id, {"tools": TOOL_DEFINITIONS})
     if method != "tools/call":
@@ -327,7 +371,7 @@ def failure(request_id: Any, code: int, message: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Meeting Hub local read-only stdio MCP")
+    parser = argparse.ArgumentParser(description="Damso local read-only stdio MCP")
     parser.add_argument("--store", required=True, type=Path)
     args = parser.parse_args()
     store = ReadOnlyStore(args.store)
@@ -339,6 +383,8 @@ def main() -> int:
             response = dispatch(store, request)
         except json.JSONDecodeError:
             response = failure(None, -32700, "parse error")
+        if response is None:
+            continue  # a notification takes no reply
         print(json.dumps(response, ensure_ascii=False), flush=True)
     return 0
 

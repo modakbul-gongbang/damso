@@ -17,30 +17,29 @@ func versionMismatchIsReportedDistinctlyFromAPlainDisconnect() {
 }
 
 @Test
-func transportAndLaunchFailuresBothMeanDisconnected() {
-    let launchFailedTracker = RemoteConnectivityTracker()
-    launchFailedTracker.noteFailure(.launchFailed)
-    #expect(launchFailedTracker.status == .disconnected)
-
-    let transportFailedTracker = RemoteConnectivityTracker()
-    transportFailedTracker.noteFailure(.transportFailed(exitCode: 255))
-    #expect(transportFailedTracker.status == .disconnected)
+func transportFailureMeansDisconnected() {
+    let tracker = RemoteConnectivityTracker()
+    tracker.noteFailure(.transportFailed)
+    #expect(tracker.status == .disconnected)
 }
 
 @Test
 func aResponseThatCameBackAtAllCountsAsConnectedEvenWhenItIsAnErrorEnvelope() {
-    // A protocol error, a backend error, an oversized body, or an undecodable
-    // body all mean the mini answered - that is proof of reachability, not
+    // A 401, a 404, a backend error, a rejected upload, or an undecodable
+    // body all mean the server answered - that is proof of reachability, not
     // evidence of a drop, so a stale "disconnected" status from an earlier
     // failure should clear rather than stick.
     for error in [
-        DamsoServeError.protocolError(code: -32601, message: "unknown operation"),
+        DamsoServerError.unauthorized,
+        .notFound,
+        .conflict,
+        .payloadTooLarge,
+        .unprocessable(detail: "bad archive"),
         .backend(code: "invalid_local_processing_request", nextAction: "retry"),
-        .oversizedResponse,
         .invalidResponse,
-    ] as [DamsoServeError] {
+    ] {
         let tracker = RemoteConnectivityTracker()
-        tracker.noteFailure(.launchFailed)
+        tracker.noteFailure(.transportFailed)
         #expect(tracker.status == .disconnected)
         tracker.noteFailure(error)
         #expect(tracker.status == .connected)
@@ -49,9 +48,9 @@ func aResponseThatCameBackAtAllCountsAsConnectedEvenWhenItIsAnErrorEnvelope() {
 
 @Test
 func localOrConfigurationIssuesLeaveTheLastKnownStatusUntouched() {
-    for error in [DamsoServeError.requestEncoding, .remoteMisconfigured] {
+    for error in [DamsoServerError.requestEncoding, .remoteMisconfigured] {
         let tracker = RemoteConnectivityTracker()
-        tracker.noteFailure(.launchFailed)
+        tracker.noteFailure(.transportFailed)
         #expect(tracker.status == .disconnected)
         tracker.noteFailure(error)
         #expect(tracker.status == .disconnected)
@@ -59,7 +58,7 @@ func localOrConfigurationIssuesLeaveTheLastKnownStatusUntouched() {
 }
 
 @Test
-func transferResultReportsConnectedOrDisconnectedForRsyncBasedPaths() {
+func transferResultReportsConnectedOrDisconnectedForUploadDownloadPaths() {
     let tracker = RemoteConnectivityTracker()
     tracker.noteTransferResult(succeeded: false)
     #expect(tracker.status == .disconnected)

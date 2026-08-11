@@ -218,7 +218,7 @@ def run_storage_action(action: str, source_root: Path, target_root: Path, confir
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Meeting Hub schema-aware local storage actions")
+    parser = argparse.ArgumentParser(description="Damso schema-aware local storage actions")
     parser.add_argument("action", choices=["preview-copy", "migrate-copy", "backup", "restore", "relocate-copy"])
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)

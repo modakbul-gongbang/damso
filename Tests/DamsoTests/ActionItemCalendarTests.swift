@@ -32,13 +32,6 @@ private final class CalendarNoopCapture: RecordingCapture {
     func stop() async throws -> CapturedAudioFiles { fatalError("unused") }
 }
 
-private func scratchDefaults() -> UserDefaults {
-    let suite = "damso-calendar-tests-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defaults.removePersistentDomain(forName: suite)
-    return defaults
-}
-
 private func summaryJSON(actionItems: String) -> String {
     """
     {"title":"주간 회의","role_hint":"","topic_summary":"topic","one_line_summary":"line",
@@ -153,7 +146,8 @@ struct MeetingCalendarControllerTests {
     @Test
     func addCreatesAllDayEventsWithProvenanceNotesAndPersistsLinks() {
         let writer = FakeCalendarWriter()
-        let defaults = scratchDefaults()
+        let scratch = ScratchDefaults()
+        let defaults = scratch.defaults
         CalendarPreferences.setTargetID("cal-1", defaults: defaults)
         let controller = MeetingCalendarController(writer: writer, defaults: defaults)
         let candidates = [
@@ -181,7 +175,8 @@ struct MeetingCalendarControllerTests {
     func partialFailureKeepsSuccessesAndRetriesOnlyFailedItems() {
         let writer = FakeCalendarWriter()
         writer.failingTasks = ["계약서 검토"]
-        let defaults = scratchDefaults()
+        let scratch = ScratchDefaults()
+        let defaults = scratch.defaults
         CalendarPreferences.setTargetID("cal-1", defaults: defaults)
         let controller = MeetingCalendarController(writer: writer, defaults: defaults)
         let ok = CalendarCandidate(task: "디자인 시안 전달", owner: nil, dueDate: "2026-07-24")
@@ -205,7 +200,8 @@ struct MeetingCalendarControllerTests {
     @Test
     func addWithoutResolvedTargetCalendarWritesNothing() {
         let writer = FakeCalendarWriter()
-        let defaults = scratchDefaults()
+        let scratch = ScratchDefaults()
+        let defaults = scratch.defaults
         CalendarPreferences.setTargetID("deleted-calendar", defaults: defaults)
         let controller = MeetingCalendarController(writer: writer, defaults: defaults)
         var persisted: [CalendarEventLink] = []
@@ -270,7 +266,8 @@ struct SummaryCalendarNotificationTests {
 
     @Test
     func notificationDefaultsOnAndToggleTurnsItOff() {
-        let defaults = scratchDefaults()
+        let scratch = ScratchDefaults()
+        let defaults = scratch.defaults
         #expect(CalendarPreferences.notificationEnabled(defaults))
         CalendarPreferences.setNotificationEnabled(false, defaults: defaults)
         #expect(!CalendarPreferences.notificationEnabled(defaults))
@@ -290,7 +287,8 @@ struct SummaryCalendarNotificationTests {
 struct CalendarSettingsStateTests {
     @Test
     func storedTargetRevertsToUnsetWhenCalendarDisappears() {
-        let defaults = scratchDefaults()
+        let scratch = ScratchDefaults()
+        let defaults = scratch.defaults
         let available = [CalendarOption(id: "cal-1", title: "일정", account: "google@example.com")]
         #expect(CalendarPreferences.resolvedTargetID(defaults: defaults, available: available) == nil)
 
@@ -304,7 +302,8 @@ struct CalendarSettingsStateTests {
     func deniedAccessExposesNoCalendars() {
         let writer = FakeCalendarWriter()
         writer.access = .denied
-        let controller = MeetingCalendarController(writer: writer, defaults: scratchDefaults())
+        let scratch = ScratchDefaults()
+        let controller = MeetingCalendarController(writer: writer, defaults: scratch.defaults)
         controller.refresh()
         #expect(controller.accessState == .denied)
         #expect(controller.calendars.isEmpty)

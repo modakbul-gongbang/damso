@@ -331,7 +331,7 @@ def _schema_is_stale(path: Path) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Rebuild the Meeting Hub SQLite search index from canonical files")
+    parser = argparse.ArgumentParser(description="Rebuild the Damso SQLite search index from canonical files")
     parser.add_argument("--store", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=None)
     args = parser.parse_args()

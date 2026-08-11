@@ -10,25 +10,13 @@ func ensureAvailableReturnsTrueImmediatelyWhenTheFileIsAlreadyLocal() async thro
     let localURL = directory.appendingPathComponent("audio.ogg")
     try Data("already here".utf8).write(to: localURL)
 
-    // Even an unconfigured (local-mode) launcher should short-circuit on an
-    // existing file without attempting anything remote.
-    let fetcher = RemoteAudioFetcher(launcher: CommandLauncher(configuration: RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())))
+    // Even an unconfigured (local-mode) client should short-circuit on an
+    // existing file without attempting any HTTP request.
+    let fetcher = RemoteAudioFetcher(client: DamsoHTTPClient(configuration: ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())))
 
-    let available = await fetcher.ensureAvailable(localURL: localURL, remotePath: "/mini/Plaud/recordings/fixture/audio.ogg")
+    let available = await fetcher.ensureAvailable(localURL: localURL, stem: "fixture", filename: "audio.ogg")
 
     #expect(available)
-}
-
-@Test
-func ensureAvailableReturnsFalseInLocalModeWhenTheFileIsMissing() async {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let missingURL = directory.appendingPathComponent("audio.ogg")
-    let fetcher = RemoteAudioFetcher(launcher: CommandLauncher(configuration: RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())))
-
-    let available = await fetcher.ensureAvailable(localURL: missingURL, remotePath: "/mini/Plaud/recordings/fixture/audio.ogg")
-
-    #expect(!available)
-    #expect(!FileManager.default.fileExists(atPath: missingURL.path))
 }
 
 @Test
@@ -36,11 +24,11 @@ func ensureAvailableReturnsFalseWhenTheConfiguredRemoteHostIsUnreachable() async
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let missingURL = directory.appendingPathComponent("audio.ogg")
-    let configuration = RemoteExecutionConfiguration(preferences: InMemoryConfigurationPreferences())
-    configuration.configureRemote(host: "damso-test-host-that-does-not-exist.invalid", interpreterPath: "/opt/homebrew/bin/python3.12", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
-    let fetcher = RemoteAudioFetcher(launcher: CommandLauncher(configuration: configuration))
+    let configuration = ServerConnectionConfiguration(preferences: InMemoryConfigurationPreferences(), tokenStore: InMemoryServerTokenStore())
+    try? configuration.configureRemote(host: "damso-test-host-that-does-not-exist.invalid", port: 8787, token: "token", storeRootPath: "/Volumes/DamsoMini/Application Support/Damso")
+    let fetcher = RemoteAudioFetcher(client: DamsoHTTPClient(configuration: configuration))
 
-    let available = await fetcher.ensureAvailable(localURL: missingURL, remotePath: "/mini/Plaud/recordings/fixture/audio.ogg")
+    let available = await fetcher.ensureAvailable(localURL: missingURL, stem: "fixture", filename: "audio.ogg")
 
     #expect(!available)
     #expect(!FileManager.default.fileExists(atPath: missingURL.path))

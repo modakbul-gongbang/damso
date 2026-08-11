@@ -1,6 +1,7 @@
 # Damso installation
 
-Damso is a local macOS application with a Swift app shell and a Python helper package.
+Damso is a Swift app (detection, recording, UI) and a Python HTTP daemon (canonical store, processing, MCP) that talks to it over `/v1`.
+Installation is two units (`make install-server`, `make install-client`); a single-machine setup runs both on the same Mac.
 It does not bundle Python, local models, the Plaud CLI, or an agent CLI (Claude Code / Codex).
 It never installs or signs in to any runtime without an explicit user action.
 Automatic summaries run through your already-signed-in agent CLI after you confirm a meeting's speakers; see the Privacy model section of [README.md](README.md) before enabling one.
@@ -18,27 +19,27 @@ Install `chromux` only if the user wants live participant-name capture from brow
 Install and sign in to the Claude Code CLI or the Codex CLI if you want automatic summaries and titles; select the default agent in Damso Settings.
 Keep the mlx-whisper large-v3-turbo and sherpa-onnx diarization models in local directories you control.
 
-## Local setup
+## Local setup (single Mac: server + client together)
+
+The common case - one Mac does detection, recording, storage, and processing.
+No pairing and no token: the app spawns its own HTTP daemon on `127.0.0.1` when it starts (D-05/D-08).
 
 Create and activate a virtual environment if your Python installation requires one.
-Install the local processing helper with `python -m pip install -e '.[local-processing]'` so the Settings action can run the fixed local setup module.
-Alternatively, install the dependencies with `python -m pip install -r requirements-local.txt`.
-Run `make verify-static` to compile the Swift app and Python package.
-Run `make install-local-app` to build the app, install it as `~/Applications/Damso.app`, register it with Launch Services, and launch it.
-The installed bundle is what makes Spotlight, Launchpad, Launch at Login, and persistent macOS permissions work; `swift run Damso` runs the same app unbundled and is only for iterating on code.
-On the first recording macOS shows Microphone and Screen Recording permission dialogs; approving them must stay a manual user action.
 Set `DAMSO_STORE` to the canonical store root that should contain `Plaud/recordings` and `Plaud/peoples`.
+Run `make install-server` to install the processing + HTTP daemon package and the local models.
+Run `make install-client` to build the Swift app, install it as `~/Applications/Damso.app`, register it with Launch Services, and launch it.
+The installed bundle is what makes Spotlight, Launchpad, Launch at Login, and persistent macOS permissions work; `swift run Damso` runs the same app unbundled (against a daemon it spawns the same way) and is only for iterating on code.
+On the first recording macOS shows Microphone and Screen Recording permission dialogs; approving them must stay a manual user action.
 By default, models live under the app's local Application Support folder (`~/Library/Application Support/Damso`).
 Set `DAMSO_MLX_WHISPER_MODEL_DIR` and `DAMSO_SHERPA_MODEL_DIR` only when you deliberately use another local model directory.
 Run `make doctor` to check the storage root, commands, and model paths without uploading meeting data.
 
 ```sh
 export DAMSO_STORE="$HOME/Library/Application Support/Damso"
-python -m pip install -e '.[local-processing]'
-make install-local-models
+make install-server
 make doctor
 make test
-make install-local-app
+make install-client
 ```
 
 ## Configuration contract
@@ -69,14 +70,15 @@ The previous `mlx-whisper-large-v3` directory of about 2.9 GB is no longer read 
 
 ## Local processing boundary
 
-The app invokes the local processing helper as one JSON request over stdin and reads the resulting artifacts from the canonical record folder.
-The helper accepts only an existing Plaud/recordings/{stem} directory, audio stored inside that record, and its sibling Plaud/peoples registry.
-It never accepts a shell command, network URL, or an arbitrary output path.
-The process writes a small status response without transcript text or absolute paths.
+The app reaches the canonical store only through the HTTP daemon's `/v1` API (D-05/D-06) - local mode over `127.0.0.1`, remote mode over your own private network with a bearer token (ADR 0003).
+Synchronous operations (apply-resolutions, recluster, person notes, speaker hints, transcript cleanup, index rebuild) are one POST to `/v1/rpc` each; phase-one and summary are queue-based, triggered by an upload/trigger call and watched with `/v1/recordings/{stem}/status` polling (D-13).
+The daemon accepts only an existing Plaud/recordings/{stem} directory, audio stored inside that record, and its sibling Plaud/peoples registry - never a shell command, network URL, or an arbitrary output path.
 
-    printf '%s' '{"operation":"apply-resolutions","recording_directory":"/path/to/store/Plaud/recordings/example","peoples_directory":"/path/to/store/Plaud/peoples","resolutions":{"SPEAKER_00":{"action":"new","name":"Example"}}}' | python3 -m damso.processing --request -
+```sh
+curl -s http://127.0.0.1:8787/v1/rpc -H 'Content-Type: application/json' -d '{"protocol_version":1,"operation":"apply-resolutions","recording_directory":"/path/to/store/Plaud/recordings/example","peoples_directory":"/path/to/store/Plaud/peoples","resolutions":{"SPEAKER_00":{"action":"new","name":"Example"}}}'
+```
 
-Use this command only with synthetic or already-approved local data.
+Use this command only with synthetic or already-approved local data, against a daemon you started yourself (`python3 -m damso.server.main --store "$DAMSO_STORE"`).
 
 ## External Sync (Plaud CLI) contract
 
@@ -98,18 +100,15 @@ The app refreshes it after each pipeline step; rebuild it manually with `make re
 Opening an index built by an older version of Damso automatically triggers a synchronous rebuild on the next search, so no manual migration step is needed after an update.
 If the local sqlite3 build lacks FTS5/trigram support, keyword search returns an explicit error instead of silently falling back to a lower-quality match; date/speaker-only search and `get_meeting`/`get_speaker` are unaffected either way.
 
-## Local MCP
+## MCP
 
-The MCP server reads the canonical store and its SQLite index through stdio.
-It does not bind a network listener and does not expose a write tool.
+The HTTP daemon serves MCP Streamable HTTP at `/mcp` (D-07) - the same URL shape for local and remote, under the same auth as the rest of `/v1` (none on loopback, a bearer token remotely).
+It exposes no write tool.
 The tools are `search_meetings`, `get_meeting`, `get_speaker`, and `search_people`; their response fields are stable and only ever extended.
 `search_meetings` and `search_people` keyword matches are ranked by BM25 relevance and include a `snippet` field with matching context; filtering by date or speaker alone keeps the original newest-first order.
 `search_people(keyword)` searches profile names and the free-text Notes section, returning candidate people (`name`, `slug`, `meetingCount`, `snippet`) for when you don't remember an exact name.
 
-```sh
-export DAMSO_STORE="$HOME/Library/Application Support/Damso"
-make mcp
-```
+Point an MCP client at `http://127.0.0.1:8787/mcp` for a local-mode store, or `http://<server-host>:<port>/mcp` with the paired token (`Authorization: Bearer <token>`) for a remote one. There is no certificate to trust and no host alias to add - the URL and the header are the whole configuration.
 
 ## Agent CLI boundary
 
@@ -148,44 +147,46 @@ PYTHONPATH=backend python3 -m damso.migration relocate-copy --source /path/to/ca
 
 ## Two-machine setup (server Mac)
 
-Optional. By default Damso does everything on one Mac; this section only applies if you want a second Mac you own to hold the canonical store and run processing while your laptop stays on detection, recording, and the UI. See the ADR at `docs/adr/0001-mac-mini-server-split.md` for why this shape was chosen.
+Optional. By default Damso does everything on one Mac; this section only applies if you want a second Mac you own to hold the canonical store and run processing while your laptop stays on detection, recording, and the UI. See the ADR at `docs/adr/0002-http-client-server.md` for why this shape was chosen (it supersedes the earlier SSH-based `0001-mac-mini-server-split.md`).
 
-The server does not have to be a Mac mini - any always-on Mac works - but it does have to be **Apple Silicon**, because transcription runs on mlx-whisper and MLX is Apple Silicon only. It does not need Xcode, a git checkout, or a Python environment you build yourself: Settings copies the app bundle and the Python helper package there over SSH.
+The server does not have to be a Mac mini - any always-on Mac works - but it does have to be **Apple Silicon** for this release, because transcription runs on mlx-whisper and MLX is Apple Silicon only.
+It needs no Xcode and no git checkout: `make install-server` is a plain Python install run directly on that machine.
 
-### What you do by hand
+### On the server Mac
 
-1. **Make SSH work.** Add your laptop's SSH key to the server and confirm `ssh <host>` connects from Terminal with no password prompt. An `~/.ssh/config` alias is the name you will type into Settings.
-2. **Install Homebrew Python and ffmpeg on the server**: `brew install python@3.12 ffmpeg`. Nothing else - Damso builds its own virtualenv at `~/Library/Application Support/Damso/server-venv` from that interpreter and installs its pinned dependencies into it, because Homebrew's Python is PEP 668 externally-managed and cannot be `pip install`ed into directly. (Model setup adapts to this: it only passes `pip install --user` on a base interpreter, since pip rejects that flag inside a virtualenv.)
-3. **Move the store before ever launching Damso on the server.** A Damso instance with no store configured creates an empty default one on first launch, which would collide with the store you are about to copy in. Copy the whole store root with a plain recursive copy, never `damso.migration` (that tool is for backup/restore/relocation snapshots, not a live store move). This step stays manual on purpose: it moves gigabytes of real meeting data and its ordering matters.
+1. Get this repository onto the server (a `git clone`, or copy the working tree - it does not need to be the same checkout as the client).
+2. Set `DAMSO_STORE` to where the canonical store should live there, and run install with the background service enabled:
    ```sh
-   rsync -a "$HOME/Library/Application Support/Damso/" <host>:"Library/Application\ Support/Damso/"
+   export DAMSO_STORE="$HOME/Library/Application Support/Damso"
+   export DAMSO_SERVER_RESIDENT=1   # registers a launchd job so the daemon survives logout/reboot
+   make install-server
    ```
-   The remote path needs backslash-escaped spaces; macOS's bundled openrsync fails with "server receiver mode requires two argument" without them. Verify the transfer with a locale-independent file-list diff before trusting it - `find` piped through `sort` uses the interactive shell's locale over SSH, which can order names differently machine to machine even when nothing is missing:
-   ```sh
-   diff <(ssh <host> 'find "Library/Application Support/Damso" -type f | LC_ALL=C sort') \
-        <(find "$HOME/Library/Application Support/Damso" -type f | LC_ALL=C sort)
-   ```
+   This installs the pinned processing + HTTP daemon dependencies, downloads the local models if missing, generates an access token under `~/Library/Application Support/Damso/.server-credentials` (D-08/D-24), and (because `DAMSO_SERVER_RESIDENT=1`) writes and loads the `com.yansfil.damso.server` LaunchAgent bound to `0.0.0.0:8787`.
+3. **Save the printed access token now** - it is not printed again. If you lose it, `make regenerate-server-credentials` issues a new one and immediately invalidates the old one (every paired client will need to re-pair).
+4. If you already have a canonical store elsewhere, copy it into place with a plain recursive copy before the daemon's first request touches `$DAMSO_STORE` - `damso.migration` is for backup/restore/relocation snapshots, not a live move.
 
-### What Settings does for you
+### On the client Mac
 
-4. Open Damso Settings → **Server Mac**, turn on **Use another Mac for storage and processing**, type the SSH host, and press **Check**. Preflight reports one line per requirement: SSH connection (and that the server is Apple Silicon), Python, ffmpeg, the canonical store, the processing environment, local models, the Damso app, and the background service. Anything you have to fix yourself comes with the command to run.
-5. Press **Set up this Mac**. It copies the Python helper package out of this app's bundle, builds a virtualenv at `~/Library/Application Support/Damso/server-venv`, installs the pinned local-processing dependencies, downloads the Whisper and Sherpa models, rsyncs this Mac's own signed `Damso.app` to the server, and writes plus loads the `com.yansfil.damso.server` LaunchAgent. Expect this to take a while: the models alone are over a gigabyte.
-6. Press **Save and use this Mac**, then reopen Damso - the store is chosen once at launch.
-
-The **Advanced** disclosure holds the interpreter and store root paths. Setup fills them in; change them only to point at an environment you built yourself, in which case preflight validates what you supplied instead of provisioning over it.
-
-### Why the server is launched the way it is
-
-The LaunchAgent runs `~/Applications/Damso.app/Contents/MacOS/Damso` with two arguments, and both matter. `--server-role` keeps that instance off meeting detection, the microphone, screen recording, and Apple Events - it only runs `damso.serve` and its own local processing sweep. `--local-python=<absolute path>` is what the sweep spawns its `damso.processing`/`damso.summary` subprocesses with: those run as *local* subprocesses on the server, not over ssh, and a bare `python3` is not reliably resolvable there - a `brew install python@<version>` formula deliberately does not symlink a generic `python3`, so PATH falls through to the system Python, which has none of the processing dependencies. Verified live: this silently failed every sweep-triggered phase-one run until the argument was added.
-
-Registering the agent also stops any server instance that launchd does not manage. A server started by hand with `open -a` is invisible to `launchctl bootout`, so bootstrapping around it would leave two servers sweeping the same store.
-
-Two things about that registration are load-bearing, both found by running it against a real machine. `launchctl bootstrap` from a non-GUI context such as an SSH session leaves the job pended (`pended nondemand spawn = speculative`) rather than starting it, even with `RunAtLoad` set, so setup follows it with `launchctl kickstart`. And it then waits for the job to actually report `state = running` before calling the step done - checking only that the job is registered reports a healthy server that has run zero times and written no log.
+5. Run `make install-client` (or use an already-installed `~/Applications/Damso.app`).
+6. Open Damso Settings → **Server Mac**, turn on **Use another Mac for storage and processing**, enter the server's address, port, and the access token from step 3, then press **Check**. The app confirms the server's protocol version and that the token is accepted before you save (D-08). If the address is not on a private network (RFC1918, a Tailscale `100.64/10`/`*.ts.net` address, or loopback), it warns you: the connection carries no encryption of its own, so it belongs on a network that already provides it.
+7. Press **Save and use this Mac**, then reopen Damso.
 
 ### Afterwards
 
-7. **Point your MCP client at the server.** If you use `search_meetings`/`get_meeting`/etc. from an MCP client, see [Remote (two-machine setup)](README.md#remote-two-machine-setup) in the README to swap the server command for `scripts/mcp-remote.sh`.
-8. **Confirm ordinary use still works end to end**: record on the laptop, confirm speakers, and check that the summary and title appear - all reads and writes should route through the server transparently. `make verify-static` and `make test` must pass on both machines independently after any code change.
+8. **Point your MCP client at the server.** Any MCP client that supports Streamable HTTP can reach `http://<server-host>:<port>/mcp` directly with the same bearer token - no wrapper script, no certificate to trust (D-07).
+9. **Confirm ordinary use still works end to end**: record on the laptop, confirm speakers, and check that the summary and title appear - all reads and writes should route through the server transparently. `make verify-static` and `make test` must pass on both machines independently after any code change.
+
+### If you are upgrading from the SSH-based two-machine setup
+
+The old `RemoteExecutionConfiguration`/SSH transport (ADR 0001) is gone; this is a clean cut, not a compatibility shim (D-12).
+The client detects a leftover SSH-era preference and shows a re-pairing notice instead of silently falling back to local mode.
+A client left over from the later HTTPS pairing (ADR 0002) is detected separately and shown its own re-pairing notice; both paths end at the same place, a fresh token and a new pairing.
+Your canonical store on the server is untouched and does not move - run `make install-server` there (steps 1-3 above), then re-pair the client (steps 5-7).
+
+### Losing the server
+
+`make uninstall-server` stops and removes the background service and deletes the access token.
+It never touches the canonical store - that is a separate, deliberate action you take yourself if you actually want to delete your meeting data.
 
 ## Sample data and public repository hygiene
 

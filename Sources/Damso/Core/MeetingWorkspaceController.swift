@@ -37,74 +37,65 @@ private struct PhaseOneTranscriptProvenance: Decodable {
     }
 }
 
-/// The narrow process boundary the workspace talks to. The production
-/// backend spawns the fixed local Python modules; tests substitute an
-/// in-memory backend so pipeline behavior is regression-tested without
-/// spawning processes.
+/// The nine synchronous processing/people RPC operations the workspace talks
+/// to (D-13: phase-one and summary moved off this protocol entirely - they
+/// are queue-based now, triggered and polled through `RemoteMeetingStore`
+/// directly). The production backend POSTs to the daemon's `/v1/rpc`; tests
+/// substitute an in-memory backend so pipeline behavior is regression-tested
+/// without a real HTTP round trip.
 protocol LocalProcessingBackend: Sendable {
-    func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult
     func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult
     func removePersonAlias(_ request: LocalRemovePersonAliasRequest) throws -> LocalProcessingResult
-    func runSummary(_ request: LocalSummaryRequest) throws -> LocalSummaryResult
     func suggestSpeakers(_ request: LocalSpeakerHintsRequest) throws -> LocalSpeakerHintsResult
     func cleanTranscript(_ request: LocalTranscriptCleanupRequest) throws -> LocalTranscriptCleanupResult
     func rebuildIndex(storeRoot: String) throws -> LocalIndexResult
 }
 
 struct SystemProcessingBackend: LocalProcessingBackend {
-    /// Resolved once per call rather than cached: cheap (an argv scan), and
-    /// staying dynamic keeps this correct across the `--server-role`/local
-    /// distinction without needing its own cache-invalidation story.
-    private var pythonExecutable: String {
-        InstanceRole.localPythonExecutable() ?? "python3"
-    }
+    private let client: DamsoHTTPClient
 
-    func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.runPhaseOne(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+    init(client: DamsoHTTPClient = DamsoHTTPClient()) {
+        self.client = client
     }
 
     func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.recluster(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.recluster(request, client: client)
     }
 
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.applyResolutions(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.applyResolutions(request, client: client)
     }
 
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.appendPersonNote(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.appendPersonNote(request, client: client)
     }
 
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.refreshCandidates(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.refreshCandidates(request, client: client)
     }
 
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.setPersonEmail(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.setPersonEmail(request, client: client)
     }
 
     func removePersonAlias(_ request: LocalRemovePersonAliasRequest) throws -> LocalProcessingResult {
-        try LocalProcessingProcessRunner.removePersonAlias(request, command: LocalProcessingCommand(pythonExecutable: pythonExecutable))
-    }
-
-    func runSummary(_ request: LocalSummaryRequest) throws -> LocalSummaryResult {
-        try LocalSummaryProcessRunner.run(request, command: LocalSummaryCommand(pythonExecutable: pythonExecutable))
+        try LocalProcessingProcessRunner.removePersonAlias(request, client: client)
     }
 
     func suggestSpeakers(_ request: LocalSpeakerHintsRequest) throws -> LocalSpeakerHintsResult {
-        try LocalSpeakerHintsProcessRunner.run(request, command: LocalSpeakerHintsCommand(pythonExecutable: pythonExecutable))
+        try LocalSpeakerHintsProcessRunner.run(request, client: client)
     }
 
     func cleanTranscript(_ request: LocalTranscriptCleanupRequest) throws -> LocalTranscriptCleanupResult {
-        try LocalTranscriptCleanupProcessRunner.run(request, command: LocalTranscriptCleanupCommand(pythonExecutable: pythonExecutable))
+        try LocalTranscriptCleanupProcessRunner.run(request, client: client)
     }
 
     func rebuildIndex(storeRoot: String) throws -> LocalIndexResult {
-        try LocalIndexProcessRunner.rebuild(storeRoot: storeRoot, pythonExecutable: pythonExecutable)
+        try LocalIndexProcessRunner.rebuild(storeRoot: storeRoot, client: client)
     }
 }
 
@@ -160,17 +151,11 @@ final class MeetingWorkspaceController: ObservableObject {
     private let notifier: any UserNotifying
     private let audioFetcher: RemoteAudioFetcher
     private var activeRecord: MeetingRecord?
-    private var resumedSummaryStems: Set<String> = []
-    private var activeProcessingStems: Set<String> = []
-    /// Guards against a genuine race (not just a test artifact): the launch
-    /// sweep's `resumeInterruptedSummaries()` runs as an unstructured `Task`,
-    /// so it can be scheduled mid-flight of an already-running `runSummary`
-    /// call - by the time it checks `records`, that record's stage is already
-    /// `.summarizing` (set synchronously before the async backend call), so
-    /// without this guard it would look "interrupted" and get summarized a
-    /// second time concurrently.
-    private var activeSummaryStems: Set<String> = []
-    private var importedProcessingChain: Task<Void, Never>?
+    /// D-13: the server's own queue is the single serialization point now
+    /// (one job at a time, its own retry state) - this only tracks which
+    /// stems this instance is actively polling, so a second poll loop is
+    /// never started for the same stem concurrently.
+    private var pollingStems: Set<String> = []
     private var refreshedCandidateStems: Set<String> = []
     private var suggestedStems: Set<String> = []
     private var cleanedTranscriptStems: Set<String> = []
@@ -188,15 +173,9 @@ final class MeetingWorkspaceController: ObservableObject {
     /// ones. Deliberately short (a plain lock-guarded enum read, no I/O) so a
     /// drop or recovery shows up promptly. nil on a local/combined store.
     private var connectionStatusPollTimer: Timer?
-    /// R13/T14: a `client` (MacBook talking to a mini) never orchestrates
-    /// processing - the mini's own instance, running against the same
-    /// canonical store it owns, is what resumes stuck records. Exposed
-    /// (not private) so `DamsoRuntime` can gate detection off the same
-    /// resolved role instead of re-deriving it.
-    let role: InstanceRole
     /// Defaults to the process-wide singleton; tests inject a fresh instance
     /// so `guardRemoteWrite`/the indicator can be driven to a known status
-    /// deterministically instead of depending on whatever a real ssh/rsync
+    /// deterministically instead of depending on whatever a real HTTP
     /// attempt elsewhere in the test run last left `.shared` at.
     private let connectivityTracker: RemoteConnectivityTracker
 
@@ -208,48 +187,39 @@ final class MeetingWorkspaceController: ObservableObject {
         self.audioFetcher = audioFetcher
         self.connectivityTracker = connectivityTracker
         session = RecordingSessionController(capture: capture)
-        self.role = InstanceRole.current(isRemoteStore: self.store is RemoteMeetingStore)
         // Do not create the default store merely by opening the app. This keeps
         // a denied first recording attempt side-effect free while still showing
         // an already-configured library immediately on later launches.
         if self.store.isConfigured {
             refreshLibrary()
-            if role.orchestratesProcessing {
-                resumeInterruptedImportedProcessing()
-                resumeUnprocessedLocalRecordings()
-                Task { await self.resumeInterruptedSummaries() }
-            }
+            resumePollingUnfinishedProcessing()
         }
         if let remote = self.store as? RemoteMeetingStore {
             connectionStatus = connectivityTracker.status
             outboxPendingCount = remote.outboxPendingCount()
         }
         startRemoteMaintenanceTimerIfNeeded()
-        startProcessingSweepTimer()
         startConnectionStatusPollTimerIfNeeded()
     }
 
-    /// 7 minutes: inside R7's stated 5-10 minute window.
+    /// 7 minutes: inside R7's stated 5-10 minute window. Also the periodic
+    /// safety net that retries any outbox record a disconnected server left
+    /// stranded (D-13 moved processing orchestration itself entirely
+    /// server-side, so this client-side sweep only needs to keep the outbox
+    /// draining and the read cache fresh - it never decides when processing
+    /// runs).
     private static let remoteMaintenanceInterval: TimeInterval = 7 * 60
-    /// 10 minutes: R8's periodic sweep, independent of R7's cache-sync cadence.
-    /// This is a safety net on a machine that also records - a finished
-    /// recording starts its own processing immediately, so the sweep only ever
-    /// has to catch what a crash or a sleep interrupted.
-    private static let processingSweepInterval: TimeInterval = 10 * 60
-    /// 30 seconds on a server instance, where the same sweep is not a safety
-    /// net but the *only* trigger: a client hands a recording off and never
-    /// orchestrates processing itself, so nothing else tells the server the
-    /// record arrived. At the shared 10-minute cadence a handoff that just
-    /// missed a tick sat untouched for the rest of the interval (observed
-    /// live: a recording landed at 17:33 and was not picked up until 17:41),
-    /// which reads as a broken pipeline rather than a wait.
-    private static let serverProcessingSweepInterval: TimeInterval = 30
     /// 5 seconds: cheap enough to poll often, since it is only a lock-guarded
-    /// enum read - no ssh/rsync call of its own (R9b).
+    /// enum read - no HTTP call of its own (R9b).
     private static let connectionStatusPollInterval: TimeInterval = 5
 
+    /// Local mode never needs this - `RemoteMeetingStore.syncCache()` is
+    /// already a no-op there, and running a repeating Timer for a sync that
+    /// never does anything is needless RunLoop churn (every test's workspace
+    /// instance would otherwise accumulate one for the lifetime of the test
+    /// process).
     private func startRemoteMaintenanceTimerIfNeeded() {
-        guard store is RemoteMeetingStore else { return }
+        guard let remote = store as? RemoteMeetingStore, remote.isRemoteConnection else { return }
         let timer = Timer(timeInterval: Self.remoteMaintenanceInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.performRemoteMaintenanceIfNeeded()
@@ -260,7 +230,7 @@ final class MeetingWorkspaceController: ObservableObject {
     }
 
     private func startConnectionStatusPollTimerIfNeeded() {
-        guard store is RemoteMeetingStore else { return }
+        guard let remote = store as? RemoteMeetingStore, remote.isRemoteConnection else { return }
         let timer = Timer(timeInterval: Self.connectionStatusPollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshConnectionStatus()
@@ -276,48 +246,45 @@ final class MeetingWorkspaceController: ObservableObject {
         outboxPendingCount = remote.outboxPendingCount()
     }
 
-    static func processingSweepInterval(for role: InstanceRole) -> TimeInterval {
-        role == .server ? serverProcessingSweepInterval : processingSweepInterval
-    }
-
-    private func startProcessingSweepTimer() {
-        let timer = Timer(timeInterval: Self.processingSweepInterval(for: role), repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.runProcessingSweep()
-            }
+    /// D-13: on launch, any record still sitting in `.queued`/`.transcribing`/
+    /// `.summarizing` was left mid-flight by a quit or crash. The server's own
+    /// queue already resumed the actual work on its side
+    /// (`recover_incomplete_on_startup`); this only resumes this client's
+    /// status polling so the UI stops showing a stale "in progress" state
+    /// once the server finishes or fails it.
+    private func resumePollingUnfinishedProcessing() {
+        for record in records where record.stage == .queued || record.stage == .transcribing || record.stage == .summarizing {
+            beginPollingProcessing(stem: record.stem)
         }
-        processingSweepTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        // `.captured` records never even reached the trigger call before a
+        // crash interrupted them (both local recordings and external
+        // imports commit through the same outbox path now, D-14) -
+        // `processImportedMeeting` is idempotent and handles either case.
+        for record in records where record.stage == .captured {
+            processImportedMeeting(stem: record.stem)
+        }
     }
 
-    /// One periodic sweep pass (R8): refreshes the list from the store, then
-    /// resumes anything still unprocessed. Safe to call on any cadence -
-    /// `processImportedMeeting`'s own `activeProcessingStems` guard makes a
-    /// record already in flight a no-op re-entry, not a duplicate run.
-    private func runProcessingSweep() {
-        guard store.isConfigured else { return }
-        refreshLibrary()
-        guard role.orchestratesProcessing else { return }
-        resumeInterruptedImportedProcessing()
-        resumeUnprocessedLocalRecordings()
-        Task { await resumeInterruptedSummaries() }
-    }
-
-    /// Local when this Mac owns the canonical store (the mini, or an
-    /// unconfigured single-machine setup); remote, reading the client-side
-    /// metadata cache (R7) and writing through `damso.serve`, once Settings
-    /// has configured a mini to connect to (R5/R3).
+    /// The one store this app now ever constructs (D-05: local mode routes
+    /// through the same HTTP daemon a remote mode does, just over loopback
+    /// with no auth) - `ServerConnectionMode` alone decides local vs. remote,
+    /// never a separate store class.
     private static func defaultStore() -> any MeetingStoring {
-        let remoteConfiguration = RemoteExecutionConfiguration()
-        switch remoteConfiguration.mode {
+        let connectionConfiguration = ServerConnectionConfiguration()
+        let client = DamsoHTTPClient(configuration: connectionConfiguration)
+        let outboxRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Damso/Outbox", isDirectory: true)
+        switch connectionConfiguration.mode {
         case .local:
-            return StorageRootConfiguration().makeStore()
+            // The "cache" is the real canonical store directory - same disk,
+            // same machine, nothing to mirror (RemoteMeetingStore's
+            // needsCacheSync: false skips the changes-based sync entirely).
+            let root = StorageRootConfiguration().rootURL
+            return RemoteMeetingStore(client: client, connectionConfiguration: connectionConfiguration, cacheRoot: root, outboxRoot: outboxRoot, needsCacheSync: false)
         case .remote:
             let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Damso", isDirectory: true)
-            let outboxRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Damso/Outbox", isDirectory: true)
-            return RemoteMeetingStore(launcher: CommandLauncher(configuration: remoteConfiguration), cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+            return RemoteMeetingStore(client: client, connectionConfiguration: connectionConfiguration, cacheRoot: cacheRoot, outboxRoot: outboxRoot, needsCacheSync: true)
         }
     }
 
@@ -504,24 +471,26 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    /// Runs the automatic summary and title step for a record whose speakers
-    /// are all resolved. Also serves as the manual retry entry point after a
-    /// failed summary stage.
+    /// Triggers the summary and title step for a record whose transcript is
+    /// ready (D-13: the server's queue runs it - this only starts the job and
+    /// begins polling). Also serves as the manual retry entry point after a
+    /// failed summary stage, and is called automatically once by the server
+    /// itself right after `apply-resolutions` succeeds; the explicit call
+    /// here covers regenerating a summary later, which needs no speaker
+    /// re-confirmation.
     func runSummary(for target: MeetingRecord? = nil) async {
         guard guardRemoteWrite() else { return }
         guard var record = target ?? selectedRecord else { return }
-        guard !activeSummaryStems.contains(record.stem) else { return }
+        guard !pollingStems.contains(record.stem) else { return }
+        guard let remote = store as? RemoteMeetingStore else {
+            recoveryAction = Loc.tr("Server storage is not configured. Set it up in Settings.")
+            return
+        }
         let artifacts = (try? store.processingArtifacts(stem: record.stem)) ?? .empty
         guard !artifacts.transcript.isEmpty else {
             recoveryAction = Loc.tr("Finish local transcription before the summary step can run.")
             return
         }
-        activeSummaryStems.insert(record.stem)
-        defer { activeSummaryStems.remove(record.stem) }
-        // Confirming speakers is no longer a precondition. The summary can run on
-        // the raw SPEAKER labels (backend falls back to transcript.raw.json), and
-        // re-running the summary after speakers are named picks up the confirmed
-        // transcript automatically.
         record.stage = .summarizing
         record.lastErrorCode = nil
         do {
@@ -536,46 +505,20 @@ final class MeetingWorkspaceController: ObservableObject {
 
         isRequestingSummary = true
         state = .processing
-        let request = LocalSummaryRequest(
-            recordingDirectory: store.recordDirectoryPath(stem: record.stem),
-            agent: AgentPreferences.summaryAgent(),
-            language: AgentPreferences.language(),
-            meetingDate: LocalSummaryRequest.localMeetingDate(for: record.createdAt)
-        )
-        let result = await Task.detached(priority: .utility) { [backend] in
-            Result { try backend.runSummary(request) }
-        }.value
-        isRequestingSummary = false
-
-        switch result {
-        case .success(let response) where response.ok && response.status == "complete":
-            do {
-                guard let artifact = try store.storedSummaryArtifact(stem: record.stem) else {
-                    throw LocalSummaryCommandError.invalidResponse
-                }
-                record.summary = artifact.summary
-                if let agentTitle = artifact.agentTitle, !agentTitle.isEmpty {
-                    record.title = MeetingTitleComposer.compose(agentTitle: agentTitle, createdAt: record.createdAt)
-                }
-                record.personNotes = mergedPersonNotes(existing: record.personNotes, proposed: artifact.personNotes)
-                record.stage = .complete
-                record.completedStages = [.captured, .transcribing, .speakerReview, .summarizing, .complete]
-                try store.update(record)
-                replace(record)
-                if selectedRecord?.stem == record.stem { selectedRecord = record }
-                state = .ready
-                recoveryAction = nil
-                scheduleIndexRebuild()
-                performRemoteMaintenanceIfNeeded()
-                postCalendarCandidateNotification(for: record)
-            } catch {
-                saveSummaryFailure(record, code: "summary_artifact_invalid")
-            }
-        case .success(let response):
-            saveSummaryFailure(record, code: response.errorCode ?? "summary_unavailable")
-        case .failure:
+        do {
+            try await remote.triggerSummary(
+                stem: record.stem,
+                agent: AgentPreferences.summaryAgent().rawValue,
+                language: AgentPreferences.language().rawValue,
+                meetingDate: LocalSummaryRequest.localMeetingDate(for: record.createdAt)
+            )
+        } catch {
+            isRequestingSummary = false
             saveSummaryFailure(record, code: "summary_launch_failed")
+            return
         }
+        isRequestingSummary = false
+        beginPollingProcessing(stem: record.stem)
     }
 
     /// Summary just completed: when date-resolved action items exist and the
@@ -614,15 +557,136 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    /// Resumes records interrupted mid-summary by a quit or crash: the stage
-    /// journal (meeting.json) says summarizing but no terminal state was
-    /// reached. Earlier stages keep their retry buttons instead of silently
-    /// re-running heavy local transcription.
-    func resumeInterruptedSummaries() async {
-        let interrupted = records.filter { $0.stage == .summarizing }
-        for record in interrupted where !resumedSummaryStems.contains(record.stem) {
-            resumedSummaryStems.insert(record.stem)
-            await runSummary(for: record)
+    /// D-13: starts (or rejoins) polling `/v1/recordings/{stem}/status` until
+    /// the server's queue settles the job it is already running - this
+    /// replaces every "spawn a subprocess and await its result" call site
+    /// (phase-one after an upload, summary after a trigger) with one shared
+    /// poll loop, since the server, not this client, now owns running and
+    /// retrying the actual work.
+    private func beginPollingProcessing(stem: String, intervalSeconds: UInt64 = 2) {
+        guard !pollingStems.contains(stem), let remote = store as? RemoteMeetingStore else { return }
+        pollingStems.insert(stem)
+        Task { [weak self] in
+            defer { self?.pollingStems.remove(stem) }
+            while true {
+                guard let self else { return }
+                let status = try? await remote.processingStatus(stem: stem)
+                guard let status else {
+                    try? await Task.sleep(for: .seconds(intervalSeconds))
+                    continue
+                }
+                switch status.state {
+                case "done":
+                    self.handleProcessingCompleted(stem: stem, kind: status.kind)
+                    return
+                case "failed":
+                    self.handleProcessingFailed(stem: stem, kind: status.kind, message: status.error)
+                    return
+                default:
+                    try? await Task.sleep(for: .seconds(intervalSeconds))
+                }
+            }
+        }
+    }
+
+    /// `kind` distinguishes which job just settled: "phase-one" moves the
+    /// record into speaker review (mirrors the old `finishProcessing`);
+    /// "summary" writes the stored summary artifact into the record (mirrors
+    /// the old success branch of `runSummary`).
+    private func handleProcessingCompleted(stem: String, kind: String?) {
+        guard var record = try? store.load(stem: stem) else { return }
+        switch kind {
+        case "summary":
+            do {
+                guard let artifact = try store.storedSummaryArtifact(stem: stem) else {
+                    throw LocalSummaryCommandError.invalidResponse
+                }
+                record.summary = artifact.summary
+                if let agentTitle = artifact.agentTitle, !agentTitle.isEmpty {
+                    record.title = MeetingTitleComposer.compose(agentTitle: agentTitle, createdAt: record.createdAt)
+                }
+                record.personNotes = mergedPersonNotes(existing: record.personNotes, proposed: artifact.personNotes)
+                record.stage = .complete
+                record.completedStages = [.captured, .transcribing, .speakerReview, .summarizing, .complete]
+                try store.update(record)
+                replace(record)
+                if selectedRecord?.stem == stem { selectedRecord = record }
+                if activeRecord?.stem == stem || selectedRecord?.stem == stem { state = .ready }
+                recoveryAction = nil
+                scheduleIndexRebuild()
+                performRemoteMaintenanceIfNeeded()
+                postCalendarCandidateNotification(for: record)
+            } catch {
+                saveSummaryFailure(record, code: "summary_artifact_invalid")
+            }
+        default:
+            Task { [weak self] in
+                await self?.finishPhaseOne(stem: stem)
+            }
+        }
+    }
+
+    /// Phase-one just settled server-side. Two audio sources (mic + system)
+    /// mean the server also produced a merged `combined-audio.m4a` for
+    /// playback; this pulls it down before trusting it as
+    /// `processedAudioFile` - the status poll response carries no payload of
+    /// its own to name it (unlike the SSH-era direct `runPhaseOne` response),
+    /// so its presence on the server is the proof.
+    private func finishPhaseOne(stem: String) async {
+        guard var record = try? store.load(stem: stem) else { return }
+        var processedAudioFile: String?
+        if record.systemAudioFile != nil, let remote = store as? RemoteMeetingStore {
+            let destination = recordDirectory(for: record).appendingPathComponent("combined-audio.m4a")
+            do {
+                try await remote.pullFile(stem: stem, filename: "combined-audio.m4a", to: destination)
+                processedAudioFile = "combined-audio.m4a"
+            } catch {
+                record.stage = .failed
+                record.lastErrorCode = "combined_audio_unavailable"
+                record.processedAudioFile = nil
+                try? store.update(record)
+                if activeRecord?.stem == stem { activeRecord = record }
+                replace(record)
+                if selectedRecord?.stem == stem {
+                    selectedRecord = record
+                    state = .failed("combined_audio_unavailable")
+                    recoveryAction = Loc.tr("The combined playback audio was not created safely. Restore both captured tracks and retry local processing.")
+                }
+                return
+            }
+        }
+        record.stage = .speakerReview
+        record.completedStages = [.captured, .transcribing, .speakerReview]
+        record.processedAudioFile = processedAudioFile
+        record.lastErrorCode = nil
+        try? store.update(record)
+        if activeRecord?.stem == stem { activeRecord = record }
+        replace(record)
+        if selectedRecord?.stem == stem {
+            selectedRecord = record
+            processingArtifacts = (try? store.processingArtifacts(stem: stem)) ?? .empty
+            state = .speakerReview(processingArtifacts.proposals.count)
+        }
+        recoveryAction = nil
+        warmSpeakerSuggestions(stem: stem)
+        performRemoteMaintenanceIfNeeded()
+    }
+
+    private func handleProcessingFailed(stem: String, kind: String?, message: String?) {
+        guard var record = try? store.load(stem: stem) else { return }
+        if kind == "summary" {
+            saveSummaryFailure(record, code: message ?? "summary_unavailable")
+            return
+        }
+        record.stage = .failed
+        record.lastErrorCode = message ?? "local_processing_failed"
+        try? store.update(record)
+        if activeRecord?.stem == stem { activeRecord = record }
+        replace(record)
+        if selectedRecord?.stem == stem {
+            selectedRecord = record
+            state = .failed(record.lastErrorCode ?? "local_processing_failed")
+            recoveryAction = Loc.tr("Processing failed on the server. Check server diagnostics and retry.")
         }
     }
 
@@ -922,8 +986,16 @@ final class MeetingWorkspaceController: ObservableObject {
         try store.processingArtifacts(stem: stem)
     }
 
-    private func mergedPersonNotes(existing: [PersonNoteProposal]?, proposed: [PersonNoteProposal]) -> [PersonNoteProposal] {
-        var merged = existing ?? []
+    /// A regenerated summary REPLACES the proposals the user has not decided
+    /// on yet, keeping only the ones they already accepted or rejected. Two
+    /// LLM runs never phrase the same person's note identically, so the old
+    /// exact-`(name, note)` dedup let every "Generate summary" press stack a
+    /// fresh near-duplicate proposal per person onto the undecided pile
+    /// (confirmed via a real two-machine run: one meeting showed each
+    /// participant's proposal twice after a re-summary). Decided notes still
+    /// dedup an incoming exact match so an accepted note is not re-proposed.
+    func mergedPersonNotes(existing: [PersonNoteProposal]?, proposed: [PersonNoteProposal]) -> [PersonNoteProposal] {
+        var merged = (existing ?? []).filter { $0.status != .proposed }
         for proposal in proposed where !merged.contains(where: { $0.name == proposal.name && $0.note == proposal.note }) {
             merged.append(proposal)
         }
@@ -946,41 +1018,34 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    /// Builds phase-one input from raw sources only. A legacy local record
-    /// written before `systemAudioFile` existed adopts its canonical sibling
-    /// when present, while Plaud and genuine mic-only records stay single-track.
-    /// Paths here are `*Path`, not `*URL`: this request body is executed by
-    /// whichever machine owns the canonical store, so it must carry that
-    /// machine's paths. In remote mode `recordDirectoryURL` is this Mac's
-    /// metadata cache, and embedding it here sent the mini a path that only
-    /// exists on the laptop - the exact "local-only path to the mini" mistake
-    /// `MeetingStoring` warns about, and the one request builder that still
-    /// made it.
-    private func phaseOneRequest(for record: MeetingRecord) -> LocalProcessingRequest? {
+    private struct PhaseOneAudioPaths {
+        let audioPath: String
+        let systemAudioPath: String?
+    }
+
+    /// Resolves which local audio file(s) belong to a record, for the legacy
+    /// combined-audio detection below (D-13: the actual phase-one trigger no
+    /// longer builds a request body at all - the server derives its own
+    /// audio-file selection from whatever the upload archive contains). A
+    /// legacy local record written before `systemAudioFile` existed adopts
+    /// its canonical sibling when present, while Plaud and genuine mic-only
+    /// records stay single-track.
+    private func phaseOneAudioPaths(for record: MeetingRecord) -> PhaseOneAudioPaths? {
         guard let originalAudioFile = record.originalAudioFile else { return nil }
         let directory = URL(fileURLWithPath: store.recordDirectoryPath(stem: record.stem))
         let systemAudioFile: String?
         if let explicit = record.systemAudioFile {
-            // Preserve the explicit path even when missing so the Python
-            // boundary fails loudly instead of silently dropping a source.
             systemAudioFile = explicit
         } else if record.source == .local, originalAudioFile != "system-audio.m4a",
                   store.holdsRecordAudioLocally(stem: record.stem) {
-            // Legacy records predate `systemAudioFile`, so the second source is
-            // discovered by looking. Only this Mac's own copy can be inspected
-            // with FileManager; for a server-held record the explicit field
-            // above is the only source of truth, and a nil here matches what
-            // the pre-split code did when the file was genuinely absent.
             let legacy = recordDirectory(for: record).appendingPathComponent("system-audio.m4a")
             systemAudioFile = FileManager.default.fileExists(atPath: legacy.path) ? legacy.lastPathComponent : nil
         } else {
             systemAudioFile = nil
         }
-        return LocalProcessingRequest(
-            recordingDirectory: directory.path,
+        return PhaseOneAudioPaths(
             audioPath: directory.appendingPathComponent(originalAudioFile).path,
-            systemAudioPath: systemAudioFile.map { directory.appendingPathComponent($0).path },
-            hints: LocalProcessingHints(record.hints)
+            systemAudioPath: systemAudioFile.map { directory.appendingPathComponent($0).path }
         )
     }
 
@@ -1011,11 +1076,11 @@ final class MeetingWorkspaceController: ObservableObject {
               provenance.sourceFile == "combined-audio.m4a",
               let sourceFiles = provenance.sourceFiles,
               sourceFiles.count == 2,
-              let request = phaseOneRequest(for: record),
-              let systemAudioPath = request.systemAudioPath else {
+              let paths = phaseOneAudioPaths(for: record),
+              let systemAudioPath = paths.systemAudioPath else {
             return (false, nil)
         }
-        let microphoneName = URL(fileURLWithPath: request.audioPath).lastPathComponent
+        let microphoneName = URL(fileURLWithPath: paths.audioPath).lastPathComponent
         let systemName = URL(fileURLWithPath: systemAudioPath).lastPathComponent
         guard Set(sourceFiles) == Set([microphoneName, systemName]) else { return (false, nil) }
         let rawSourcesExist = existingAudioURL(named: microphoneName, in: record) != nil
@@ -1035,40 +1100,26 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
+    /// D-13's one retry path for a failed processing job: re-queues the
+    /// server's already-failed phase-one job for this stem (`POST
+    /// /v1/recordings/{stem}/requeue`) and resumes polling - the server
+    /// re-runs it against the audio it already has, so there is nothing left
+    /// for the client to re-upload or re-validate locally.
     func retrySelectedPhaseOne() async {
         guard guardRemoteWrite() else { return }
-        guard var record = selectedRecord,
-              let originalAudioFile = record.originalAudioFile else { return }
-        // These two presence checks turn a missing file into a clear message
-        // instead of a Python-side error, but they can only speak for audio
-        // this Mac actually holds. For a record already handed off to the
-        // server the audio is on the server by design, and running them there
-        // reported every healthy recording as unreprocessable; the backend
-        // validates its own inputs and fails loudly if they are truly gone.
-        // A client's request runs on the server against the server's paths, so
-        // a recording still sitting in the outbox has nothing there to process
-        // yet. Say so instead of sending paths the server cannot open; the
-        // outbox sweep hands it over on its own once the server is reachable.
-        if store is RemoteMeetingStore, store.holdsRecordAudioLocally(stem: record.stem) {
+        guard var record = selectedRecord else { return }
+        guard let remote = store as? RemoteMeetingStore else {
+            recoveryAction = Loc.tr("Server storage is not configured. Set it up in Settings.")
+            return
+        }
+        if remote.isRemoteConnection, remote.holdsRecordAudioLocally(stem: record.stem) {
+            // Still in the outbox (never reached the server): nothing there
+            // to requeue yet. The outbox sweep hands it over automatically
+            // once the connection is back (R9).
             state = .failed("recording_not_transferred")
             recoveryAction = Loc.tr("This recording has not reached the server yet. It transfers automatically once the server is reachable.")
             return
         }
-        if store.holdsRecordAudioLocally(stem: record.stem) {
-            let audioURL = recordDirectory(for: record).appendingPathComponent(originalAudioFile)
-            guard FileManager.default.fileExists(atPath: audioURL.path) else {
-                state = .failed("recording_source_missing")
-                recoveryAction = Loc.tr("The original local audio is unavailable, so this meeting cannot be reprocessed.")
-                return
-            }
-            if let systemAudioFile = record.systemAudioFile,
-               existingAudioURL(named: systemAudioFile, in: record) == nil {
-                state = .failed("recording_system_audio_missing")
-                recoveryAction = Loc.tr("The captured system audio is unavailable. Restore it in this meeting folder before reprocessing.")
-                return
-            }
-        }
-        guard let request = phaseOneRequest(for: record) else { return }
         record = MeetingDetailActions.retry(.transcribing, for: record)
         record.resolutions = []
         record.transcript = nil
@@ -1096,16 +1147,23 @@ final class MeetingWorkspaceController: ObservableObject {
         selectedRecord = record
         processingArtifacts = .empty
         state = .processing
-        let result = await Task.detached(priority: .utility) { [backend] in
-            Result { try backend.runPhaseOne(request) }
-        }.value
-        switch result {
-        case .success(let response):
-            finishProcessing(record, request: request, response: response)
-        case .failure(let error):
+        do {
+            try await remote.requeueProcessing(stem: record.stem)
+        } catch {
             failProcessing(record, error: error)
+            return
         }
+        beginPollingProcessing(stem: record.stem)
     }
+
+    /// A record whose outbox copy holds the audio is either still pending
+    /// handoff, or - after a successful handoff - has had its outbox audio
+    /// already cleaned up (`deleteOutboxAudioIfPhaseOneComplete`); this marker
+    /// path never actually exists on disk, it only names the check that
+    /// distinguishes the two without adding new persisted state: a record is
+    /// "still pending" exactly when its outbox directory still holds the
+    /// original audio *and* the cache has no committed copy yet.
+    private func outboxAudioMissingMarkerPath(for record: MeetingRecord) -> String { "" }
 
     /// Diarization-only rerun with a user-supplied speaker count, offered on
     /// the speaker-review screen while no speaker has been confirmed yet.
@@ -1208,11 +1266,11 @@ final class MeetingWorkspaceController: ObservableObject {
             // keeps returning nil, which the player already treats as
             // "unavailable" rather than an error (R4/AC5).
             let localDirectory = store.recordDirectoryURL(stem: record.stem)
-            let remoteDirectory = store.recordDirectoryPath(stem: record.stem)
             for fileName in [record.processedAudioFile, record.originalAudioFile].compactMap({ $0 }) {
                 await audioFetcher.ensureAvailable(
                     localURL: localDirectory.appendingPathComponent(fileName),
-                    remotePath: remoteDirectory + "/" + fileName
+                    stem: record.stem,
+                    filename: fileName
                 )
             }
         }
@@ -1342,52 +1400,50 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    /// Queues the already-stopped active recording into the local pipeline.
+    /// Uploads the already-stopped active recording and starts polling (D-13:
+    /// commit auto-enqueues phase-one server-side; this client only starts
+    /// and watches the job).
     private func processStoppedRecording() {
         guard var record = activeRecord, record.originalAudioFile != nil else { return }
-        // Manual recordings skip the import queue and transcribe immediately,
-        // so the visible stage goes straight to "Transcribing" instead of
-        // sitting on a stale "waiting" badge while the subprocess runs.
         record.stage = .transcribing
         try? store.update(record)
         activeRecord = record
         replace(record)
         state = .processing
-        activeProcessingStems.insert(record.stem)
         let processing = record
-        Task { [weak self, backend] in
-            guard let self else { return }
-            if let remote = self.store as? RemoteMeetingStore {
-                // The recording is confirmed kept (not the detection flow's
-                // discardable hold): hand it off now, before phase-one needs
-                // it on the mini (R6). A disconnected mini leaves it in the
-                // outbox; the phase-one attempt below then fails cleanly and
-                // the retry sweep (retryPendingOutboxWorkIfRemote) picks the
-                // handoff back up once the connection returns (R9).
-                _ = try? await remote.handOff(stem: processing.stem)
-            }
-            guard let request = self.phaseOneRequest(for: processing) else { return }
-            let result = await Task.detached(priority: .utility) {
-                Result { try backend.runPhaseOne(request) }
-            }.value
-            self.activeProcessingStems.remove(processing.stem)
-            switch result {
-            case .success(let response):
-                self.finishProcessing(processing, request: request, response: response)
-            case .failure(let error):
+        Task { [weak self] in
+            guard let self, let remote = self.store as? RemoteMeetingStore else { return }
+            do {
+                try await remote.triggerProcessing(stem: processing.stem)
+            } catch {
                 self.failProcessing(processing, error: error)
+                return
             }
+            self.beginPollingProcessing(stem: processing.stem)
         }
     }
 
     // MARK: External sync entry points
 
-    /// The canonical store this workspace reads and writes, when it is local.
-    /// External Sync (Plaud) is mini-only orchestration (D-A1, T14): a
-    /// remote-mode client backed by `RemoteMeetingStore` returns nil here so
-    /// `ExternalSyncController` skips setup instead of reaching for a root
-    /// path that only exists on the mini.
-    var meetingStore: MeetingStore? { store as? MeetingStore }
+    /// D-14: Plaud imports go through the exact same outbox+upload+commit
+    /// path as a manually stopped recording, so the server sees every input
+    /// as an identical upload regardless of source.
+    func importExternalRecording(_ record: MeetingRecord, movingAudioFrom audioURL: URL) throws {
+        try store.commitImported(record, movingAudioFrom: audioURL)
+    }
+
+    /// The local root External Sync needs only for its own checkpoint
+    /// bookkeeping (`ExternalSyncCheckpointStore`) - never for a direct
+    /// canonical-store write, which now always goes through
+    /// `importExternalRecording` above regardless of local/remote mode.
+    /// Deliberately `localRootURL`, not `storeRootPath`: in remote mode the
+    /// latter is the server's own filesystem path (confirmed: writing the
+    /// checkpoint there on the client Mac always failed with
+    /// `state_persistence_failed`, since that path belongs to a different
+    /// machine and is typically absent or unwritable here).
+    var externalSyncStoreRootURL: URL? {
+        store.isConfigured ? store.localRootURL : nil
+    }
 
     /// Registers a freshly committed external import in the visible library.
     /// A re-synced or adopted record that already carries a transcript is
@@ -1433,14 +1489,14 @@ final class MeetingWorkspaceController: ObservableObject {
         processImportedMeeting(stem: stem)
     }
 
-    /// Starts the normal local pipeline (transcribe → speaker review →
+    /// Starts the normal pipeline (upload/trigger → poll → speaker review →
     /// summary) for a meeting imported by external sync. Unlike the manual
     /// recording path this never touches the active recording, selection, or
     /// global workspace state, so a background import cannot hijack the UI.
-    /// Imported meetings process one at a time: a sync batch must not spawn
-    /// one heavy transcription subprocess per file.
+    /// The server's queue serializes actual work; this only avoids starting a
+    /// second poll loop for the same stem.
     func processImportedMeeting(stem: String) {
-        guard !activeProcessingStems.contains(stem) else { return }
+        guard !pollingStems.contains(stem) else { return }
         guard let record = try? store.load(stem: stem), record.originalAudioFile != nil else { return }
         // Idempotent guard: a record that already carries a phase-one
         // transcript must never be transcribed again (an interrupted import,
@@ -1478,101 +1534,31 @@ final class MeetingWorkspaceController: ObservableObject {
             }
             return
         }
-        activeProcessingStems.insert(stem)
         var queued = record
-        queued.stage = .queued
+        queued.stage = .transcribing
         try? store.update(queued)
         replace(queued)
-        guard let request = phaseOneRequest(for: queued) else { return }
-        let stem = queued.stem
-        let previous = importedProcessingChain
-        importedProcessingChain = Task { [weak self, backend] in
-            await previous?.value
-            // Persist the transcribing stage when this record's turn actually
-            // starts, so the UI shows the animated "Transcribing" state instead
-            // of a stale "queued/waiting" while the subprocess runs.
-            if let self, var running = try? self.store.load(stem: stem), running.stage == .queued {
-                running.stage = .transcribing
-                try? self.store.update(running)
-                self.replace(running)
-            }
-            let result = await Task.detached(priority: .utility) {
-                Result { try backend.runPhaseOne(request) }
-            }.value
-            guard let self else { return }
-            self.activeProcessingStems.remove(stem)
-            guard var updated = try? self.store.load(stem: stem) else { return }
-            switch result {
-            case .success(let response):
-                do {
-                    updated.processedAudioFile = try self.validatedProcessedAudioFile(
-                        for: updated,
-                        request: request,
-                        response: response
-                    )
-                    updated.stage = .speakerReview
-                    updated.completedStages = [.captured, .transcribing, .speakerReview]
-                    updated.lastErrorCode = nil
-                } catch {
-                    let failure = self.processingFailureDetails(error)
-                    updated.stage = .failed
-                    updated.lastErrorCode = failure.code
-                    updated.processedAudioFile = nil
-                    if self.selectedRecord?.stem == stem {
-                        self.state = .failed(failure.code)
-                        self.recoveryAction = failure.nextAction
-                    }
-                }
-            case .failure(let error):
+        Task { [weak self] in
+            guard let self, let remote = self.store as? RemoteMeetingStore else { return }
+            do {
+                try await remote.triggerProcessing(stem: stem)
+            } catch {
+                var failed = queued
                 let failure = self.processingFailureDetails(error)
-                updated.stage = .failed
-                updated.lastErrorCode = failure.code
+                failed.stage = .failed
+                failed.lastErrorCode = failure.code
+                try? self.store.update(failed)
+                self.replace(failed)
                 if self.selectedRecord?.stem == stem {
                     self.state = .failed(failure.code)
                     self.recoveryAction = failure.nextAction
                 }
+                return
             }
-            try? self.store.update(updated)
-            self.replace(updated)
-            if self.selectedRecord?.stem == stem {
-                self.selectedRecord = updated
-                self.processingArtifacts = (try? self.store.processingArtifacts(stem: stem)) ?? .empty
-            }
-            if updated.stage == .speakerReview {
-                self.warmSpeakerSuggestions(stem: stem)
-            }
-            self.scheduleIndexRebuild()
+            self.beginPollingProcessing(stem: stem)
         }
     }
 
-    /// Imported meetings interrupted mid-transcription by a quit or crash
-    /// stay in the queued stage; restart them once per session so external
-    /// sync's automatic processing promise survives an app restart (R6).
-    func resumeInterruptedImportedProcessing() {
-        // Records left mid-flight by a quit or crash: captured (committed but
-        // never even queued - the gap R8/AC10 closes), queued (never
-        // started), or transcribing (started, no terminal write).
-        // processImportedMeeting is idempotent, so a record that already has
-        // a transcript is promoted instead of re-transcribed.
-        let interrupted = records.filter { $0.source != .local && ($0.stage == .captured || $0.stage == .queued || $0.stage == .transcribing) }
-        for record in interrupted {
-            processImportedMeeting(stem: record.stem)
-        }
-    }
-
-    /// Local recordings left in the pre-transcription stage (`captured`) by a
-    /// crash or an older build never auto-started their pipeline. On launch,
-    /// promote the ones that already have a transcript and enqueue the ones
-    /// that genuinely still need transcription, one at a time.
-    func resumeUnprocessedLocalRecordings() {
-        // transcribing is included for a crash mid-transcription; the active
-        // stems guard keeps a live in-process run from being restarted when
-        // the window reopens mid-flight.
-        let pending = records.filter { $0.source == .local && ($0.stage == .captured || $0.stage == .queued || $0.stage == .transcribing) }
-        for record in pending {
-            processImportedMeeting(stem: record.stem)
-        }
-    }
 
     // MARK: Detection-driven recording entry points
 
@@ -1615,57 +1601,6 @@ final class MeetingWorkspaceController: ObservableObject {
         state = .ready
         recoveryAction = nil
         refreshLibrary()
-    }
-
-    private func validatedProcessedAudioFile(
-        for record: MeetingRecord,
-        request: LocalProcessingRequest,
-        response: LocalProcessingResult
-    ) throws -> String? {
-        guard request.systemAudioPath != nil else { return nil }
-        guard let processedAudioFile = response.processedAudioFile,
-              processedAudioFile == "combined-audio.m4a",
-              existingAudioURL(named: processedAudioFile, in: record) != nil else {
-            throw LocalProcessingCommandError.backend(
-                code: "combined_audio_unavailable",
-                nextAction: Loc.tr("The combined playback audio was not created safely. Restore both captured tracks and retry local processing.")
-            )
-        }
-        return processedAudioFile
-    }
-
-    private func finishProcessing(
-        _ record: MeetingRecord,
-        request: LocalProcessingRequest,
-        response: LocalProcessingResult
-    ) {
-        let processedAudioFile: String?
-        do {
-            processedAudioFile = try validatedProcessedAudioFile(for: record, request: request, response: response)
-        } catch {
-            var failed = record
-            failed.processedAudioFile = nil
-            failProcessing(failed, error: error)
-            return
-        }
-        var updated = record
-        updated.stage = .speakerReview
-        updated.completedStages = [.captured, .transcribing, .speakerReview]
-        updated.processedAudioFile = processedAudioFile
-        try? store.update(updated)
-        activeRecord = updated
-        replace(updated)
-        selectedRecord = updated
-        processingArtifacts = (try? store.processingArtifacts(stem: updated.stem)) ?? .empty
-        state = .speakerReview(response.speakerCount ?? 0)
-        recoveryAction = nil
-        // Warm the transcript-read hints now so they are already on the cards
-        // the first time this freshly transcribed meeting is opened.
-        warmSpeakerSuggestions(stem: updated.stem)
-        // Phase-one just completed on the mini; syncing now is what lets the
-        // outbox's audio-deletion gate (R6) confirm it soonest, instead of
-        // waiting for the next unrelated trigger.
-        performRemoteMaintenanceIfNeeded()
     }
 
     private func saveSummaryFailure(_ record: MeetingRecord, code: String) {
@@ -1729,6 +1664,23 @@ final class MeetingWorkspaceController: ObservableObject {
             // Show any hints already computed for this meeting immediately, so
             // opening it never starts behind an empty "AI is reading..." wait.
             speakerSuggestions = store.cachedSpeakerSuggestions(stem: record.stem)
+            // `state`/`recoveryAction` are set by the last action attempted
+            // (delete, summary retry, speaker resolution, a disconnected-
+            // server write guard, ...), always against whichever record was
+            // selected at the time - never scoped to a stem. Left uncleared,
+            // a failure on one meeting kept showing as "Recording needs
+            // attention" (and the inline recovery banner in the overview
+            // tab, which renders `recoveryAction` unconditionally) on every
+            // other meeting the user opened afterward, including already-
+            // complete ones with nothing wrong (confirmed via a real
+            // two-machine test: the banner read identically across
+            // unrelated meetings). `recoveryAction` always clears; `state`
+            // only resets from `.failed` - `.recording`/`.processing` are
+            // genuinely global and must survive a selection change.
+            recoveryAction = nil
+            if case .failed = state {
+                state = .ready
+            }
         }
         selectedRecord = record
         processingArtifacts = (try? store.processingArtifacts(stem: record.stem)) ?? .empty

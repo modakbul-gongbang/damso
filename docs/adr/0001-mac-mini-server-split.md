@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-08). Opt-in: the default install is still a single Mac doing everything; this only applies once a user configures a Mac mini connection.
+Superseded (2026-08) by [ADR 0002](0002-http-client-server.md), which replaces the SSH stdio transport described below with an HTTP client/server architecture. Kept for historical context; the SSH transport itself no longer exists in the codebase.
 
 ## Context
 

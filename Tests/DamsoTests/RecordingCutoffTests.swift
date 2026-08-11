@@ -91,32 +91,12 @@ private final class CutoffFakeCapture: RecordingCapture {
     }
 }
 
+// D-13 moved phase-one off `LocalProcessingBackend` (it is queue-based
+// through `RemoteMeetingStore` now); `keptShortRecordingRunsTheNormalPipeline`,
+// which used to observe a fake phase-one run here, needs a real or fake HTTP
+// server and now lives in the Python-side loopback suite instead. The
+// discard-path coverage below is unaffected - it never reaches processing.
 private final class CutoffFakeBackend: LocalProcessingBackend, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _phaseOneCount = 0
-    private var _phaseOneRequests: [LocalProcessingRequest] = []
-    var phaseOneCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return _phaseOneCount
-    }
-    var phaseOneRequests: [LocalProcessingRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _phaseOneRequests
-    }
-
-    func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
-        lock.lock()
-        _phaseOneCount += 1
-        _phaseOneRequests.append(request)
-        lock.unlock()
-        try Data("combined".utf8).write(
-            to: URL(fileURLWithPath: request.recordingDirectory).appendingPathComponent("combined-audio.m4a")
-        )
-        return LocalProcessingResult(ok: true, stage: "speaker_review", speakerCount: 2, processedAudioFile: "combined-audio.m4a")
-    }
-
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
@@ -155,37 +135,6 @@ struct RecordingCutoffWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: directory.path))
         #expect(try store.list().isEmpty)
         #expect(controller.records.isEmpty)
-        #expect(backend.phaseOneCount == 0)
-    }
-
-    @Test @MainActor
-    func keptShortRecordingRunsTheNormalPipeline() async throws {
-        let (controller, backend, store, root) = makeCutoffWorkspace()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        #expect(await controller.detectionStartRecording())
-        #expect(await controller.detectionStopRecording())
-        controller.detectionProcessStoppedRecording()
-
-        // The backend call and the controller's persisted success transition
-        // are separate asynchronous steps. Wait for both before inspecting
-        // playback metadata.
-        for _ in 0..<100 {
-            let stored = try? store.list()
-            if backend.phaseOneCount == 1,
-               stored?.first?.processedAudioFile == "combined-audio.m4a" {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(backend.phaseOneCount == 1)
-        let record = try #require(try store.list().first)
-        #expect(record.systemAudioFile == "system-audio.m4a")
-        #expect(record.processedAudioFile == "combined-audio.m4a")
-        let request = try #require(backend.phaseOneRequests.first)
-        #expect(request.audioPath.hasSuffix("/microphone.caf"))
-        #expect(request.systemAudioPath?.hasSuffix("/system-audio.m4a") == true)
-        #expect(controller.sourceAudioURL(for: record)?.lastPathComponent == "combined-audio.m4a")
     }
 
     @Test @MainActor

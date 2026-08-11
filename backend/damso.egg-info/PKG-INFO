@@ -2,6 +2,8 @@ Metadata-Version: 2.4
 Name: damso
 Version: 0.1.0
 Summary: Local-first macOS meeting capture helpers
+License: MIT
+Project-URL: Homepage, https://github.com/yansfil/damso
 Requires-Python: >=3.11
 License-File: LICENSE
 Provides-Extra: local-processing
@@ -10,4 +12,9 @@ Requires-Dist: numpy<3,>=1.26; extra == "local-processing"
 Requires-Dist: sherpa-onnx==1.13.4; extra == "local-processing"
 Requires-Dist: sherpa-onnx-bin==1.13.4; extra == "local-processing"
 Requires-Dist: huggingface-hub<2,>=1.7; extra == "local-processing"
+Provides-Extra: server
+Requires-Dist: fastapi<1,>=0.115; extra == "server"
+Requires-Dist: uvicorn<1,>=0.30; extra == "server"
+Requires-Dist: cryptography<47,>=42; extra == "server"
+Requires-Dist: python-multipart<1,>=0.0.9; extra == "server"
 Dynamic: license-file

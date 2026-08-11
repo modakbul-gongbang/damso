@@ -1,17 +1,5 @@
 import Foundation
 
-struct LocalSummaryCommand: Equatable, Sendable {
-    let pythonExecutable: String
-
-    init(pythonExecutable: String = "python3") {
-        self.pythonExecutable = pythonExecutable
-    }
-
-    var arguments: [String] {
-        [pythonExecutable, "-m", "damso.summary", "--request", "-"]
-    }
-}
-
 enum SummaryAgent: String, Codable, CaseIterable, Sendable {
     case claude
     case codex
@@ -82,45 +70,4 @@ enum LocalSummaryCommandError: Error, Equatable {
     case failed
     case invalidResponse
     case oversizedResponse
-}
-
-/// Starts the fixed local Python module with JSON stdin only. The request has
-/// no transcript text, CLI argument, or secret. The Python boundary reads the
-/// canonical local artifact and returns only a bounded status object.
-enum LocalSummaryProcessRunner {
-    private static let maximumResponseBytes = 64 * 1_024
-
-    static func run(_ request: LocalSummaryRequest, command: LocalSummaryCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalSummaryResult {
-        let input: Data
-        do {
-            input = try JSONEncoder().encode(request)
-        } catch {
-            throw LocalSummaryCommandError.requestEncoding
-        }
-
-        let argv: [String]
-        switch launcher.configuration.mode {
-        case .local:
-            argv = command.arguments
-        case .remote:
-            argv = launcher.argv(module: "damso.summary", moduleArguments: ["--request", "-"])
-        }
-
-        let output: CommandLauncherOutput
-        do {
-            output = try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
-        } catch CommandLauncherError.oversizedResponse {
-            throw LocalSummaryCommandError.oversizedResponse
-        } catch {
-            throw LocalSummaryCommandError.launchFailed
-        }
-
-        guard output.terminationStatus == 0 else {
-            throw LocalSummaryCommandError.failed
-        }
-        guard let result = try? JSONDecoder().decode(LocalSummaryResult.self, from: output.data) else {
-            throw LocalSummaryCommandError.invalidResponse
-        }
-        return result
-    }
 }

@@ -86,14 +86,14 @@ def storage_runtime(root: Path) -> DiagnosticItem:
 def module_runtime(module: str, identifier: str) -> DiagnosticItem:
     if importlib.util.find_spec(module):
         return DiagnosticItem(identifier, "ready", f"{module} is available in the configured Python runtime.", "")
-    return DiagnosticItem(identifier, "blocked", f"{module} is not installed in the configured Python runtime.", "Use the explicit Local Processing Models install action in Meeting Hub Settings.")
+    return DiagnosticItem(identifier, "blocked", f"{module} is not installed in the configured Python runtime.", "Use the explicit Local Processing Models install action in Damso Settings.")
 
 
 def model_runtime(environment: dict[str, str]) -> list[DiagnosticItem]:
     root = default_model_root()
     models = [
-        ("mlx_whisper_model", Path(environment.get("DAMSO_MLX_WHISPER_MODEL_DIR", root / WHISPER_DIRECTORY_NAME)), "config.json", "Use the explicit Local Processing Models install action in Meeting Hub Settings."),
-        ("sherpa_model", Path(environment.get("DAMSO_SHERPA_MODEL_DIR", root / "sherpa-diarization")), f"sherpa-onnx-pyannote-segmentation-3-0/model.onnx|{SHERPA_EMBEDDING_FILENAME}", "Use the explicit Local Processing Models install action in Meeting Hub Settings."),
+        ("mlx_whisper_model", Path(environment.get("DAMSO_MLX_WHISPER_MODEL_DIR", root / WHISPER_DIRECTORY_NAME)), "config.json", "Use the explicit Local Processing Models install action in Damso Settings."),
+        ("sherpa_model", Path(environment.get("DAMSO_SHERPA_MODEL_DIR", root / "sherpa-diarization")), f"sherpa-onnx-pyannote-segmentation-3-0/model.onnx|{SHERPA_EMBEDDING_FILENAME}", "Use the explicit Local Processing Models install action in Damso Settings."),
     ]
     result = []
     for identifier, directory, expected, action in models:
@@ -126,7 +126,7 @@ def redact(value: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Meeting Hub local runtime diagnostics")
+    parser = argparse.ArgumentParser(description="Damso local runtime diagnostics")
     parser.add_argument("--root", type=Path, required=True, help="Configured canonical storage root")
     parser.add_argument("--json", action="store_true", help="Emit a redacted JSON report")
     args = parser.parse_args()

@@ -1,9 +1,13 @@
 import Foundation
 
-/// Reaps local processing and summary subprocesses so a killed or crashed app
-/// can never leave a heavy transcription running that then collides with the
-/// next launch (observed 2026-07-17: a force-quit left an orphaned
-/// `damso.processing` re-transcribing in parallel with the new instance).
+/// Reaps this app's own child processes so a killed or crashed app can never
+/// leave one running that then collides with the next launch (observed
+/// 2026-07-17: a force-quit left an orphaned `damso.processing`
+/// re-transcribing in parallel with the new instance). Since D-13 moved all
+/// processing server-side, the one child process this now applies to is the
+/// local-mode HTTP daemon itself (`damso.server.main`, spawned by
+/// `LocalServerLifecycle`) - the identical reap-on-launch/kill-on-terminate
+/// shape applies unchanged, just to a different child.
 ///
 /// The match is deliberately narrow: only fixed Python module roots this app
 /// spawns, plus subprocesses owned by those roots, and only when a root's
@@ -11,7 +15,7 @@ import Foundation
 /// or launchd after the previous app died (`ppid == 1`). A live sibling
 /// instance's process tree is never touched.
 enum ProcessingOrphanSweeper {
-    static let moduleMarkers = ["damso.processing", "damso.summary"]
+    static let moduleMarkers = ["damso.server.main"]
     static let terminationGraceInterval: TimeInterval = 6
 
     struct ProcessTarget: Equatable {

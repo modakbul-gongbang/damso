@@ -1,22 +1,12 @@
 import Foundation
 
-struct LocalTranscriptCleanupCommand: Equatable, Sendable {
-    let pythonExecutable: String
-
-    init(pythonExecutable: String = "python3") {
-        self.pythonExecutable = pythonExecutable
-    }
-
-    var arguments: [String] {
-        [pythonExecutable, "-m", "damso.transcript_cleanup", "--request", "-"]
-    }
-}
-
 struct LocalTranscriptCleanupRequest: Encodable, Sendable {
+    let operation = "transcript-cleanup"
     let recordingDirectory: String
     let agent: String
 
     enum CodingKeys: String, CodingKey {
+        case operation
         case recordingDirectory = "recording_directory"
         case agent
     }
@@ -50,37 +40,16 @@ enum LocalTranscriptCleanupCommandError: Error, Equatable {
 }
 
 enum LocalTranscriptCleanupProcessRunner {
-    private static let maximumResponseBytes = 64 * 1_024
-
-    static func run(_ request: LocalTranscriptCleanupRequest, command: LocalTranscriptCleanupCommand = .init(), launcher: CommandLauncher = CommandLauncher()) throws -> LocalTranscriptCleanupResult {
-        let input: Data
+    static func run(_ request: LocalTranscriptCleanupRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalTranscriptCleanupResult {
+        let data: Data
         do {
-            input = try JSONEncoder().encode(request)
-        } catch {
-            throw LocalTranscriptCleanupCommandError.requestEncoding
-        }
-
-        let argv: [String]
-        switch launcher.configuration.mode {
-        case .local:
-            argv = command.arguments
-        case .remote:
-            argv = launcher.argv(module: "damso.transcript_cleanup", moduleArguments: ["--request", "-"])
-        }
-
-        let output: CommandLauncherOutput
-        do {
-            output = try launcher.run(argv: argv, input: input, maximumResponseBytes: maximumResponseBytes)
-        } catch CommandLauncherError.oversizedResponse {
+            data = try client.send(request)
+        } catch DamsoServerError.payloadTooLarge {
             throw LocalTranscriptCleanupCommandError.oversizedResponse
         } catch {
             throw LocalTranscriptCleanupCommandError.launchFailed
         }
-
-        guard output.terminationStatus == 0 else {
-            throw LocalTranscriptCleanupCommandError.failed
-        }
-        guard let result = try? JSONDecoder().decode(LocalTranscriptCleanupResult.self, from: output.data) else {
+        guard let result = try? JSONDecoder().decode(LocalTranscriptCleanupResult.self, from: data) else {
             throw LocalTranscriptCleanupCommandError.invalidResponse
         }
         return result

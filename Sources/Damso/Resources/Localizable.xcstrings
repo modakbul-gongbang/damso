@@ -369,22 +369,6 @@
         }
       }
     },
-    "Absolute path on the server. Filled in by setup; change it only to reuse an interpreter you installed yourself.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Absolute path on the server. Filled in by setup; change it only to reuse an interpreter you installed yourself."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "서버의 절대 경로입니다. 설정이 자동으로 채우며, 직접 설치한 인터프리터를 쓸 때만 바꾸세요."
-          }
-        }
-      }
-    },
     "Accepted meeting notes about this person will appear here.": {
       "localizations": {
         "en": {
@@ -397,6 +381,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "수락한 인물 메모가 여기에 표시됩니다."
+          }
+        }
+      }
+    },
+    "Access token": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access token"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액세스 토큰"
           }
         }
       }
@@ -477,22 +477,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이름 추가"
-          }
-        }
-      }
-    },
-    "Add this Mac's SSH key to the server and confirm `ssh <host>` works from Terminal without a password prompt.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add this Mac's SSH key to the server and confirm `ssh <host>` works from Terminal without a password prompt."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 SSH 키를 서버에 등록하고, 터미널에서 `ssh <host>`가 비밀번호 없이 접속되는지 확인하세요."
           }
         }
       }
@@ -1569,6 +1553,22 @@
         }
       }
     },
+    "Connected and the access token works. Save to start using this server.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected and the access token works. Save to start using this server."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결되었고 액세스 토큰도 확인되었습니다. 저장하면 이 서버를 사용합니다."
+          }
+        }
+      }
+    },
     "Connected to %@.": {
       "localizations": {
         "en": {
@@ -1633,22 +1633,6 @@
         }
       }
     },
-    "Copying Damso to the server.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copying Damso to the server."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Damso를 서버로 복사하는 중입니다."
-          }
-        }
-      }
-    },
     "Corrections are kept separate from original local processing output, so retry and reprocessing remain auditable.": {
       "localizations": {
         "en": {
@@ -1681,38 +1665,6 @@
         }
       }
     },
-    "Could not copy Damso to the server.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not copy Damso to the server."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Damso를 서버로 복사하지 못했습니다."
-          }
-        }
-      }
-    },
-    "Could not copy the helper package to the server.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not copy the helper package to the server."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "헬퍼 패키지를 서버로 복사하지 못했습니다."
-          }
-        }
-      }
-    },
     "Could not create the Applications directory on the server.": {
       "localizations": {
         "en": {
@@ -1729,66 +1681,18 @@
         }
       }
     },
-    "Could not create the helper package directory.": {
+    "Could not reach a Damso server at this address.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not create the helper package directory."
+            "value": "Could not reach a Damso server at this address."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "헬퍼 패키지 디렉터리를 만들지 못했습니다."
-          }
-        }
-      }
-    },
-    "Could not reach this host over SSH.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not reach this host over SSH."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH로 이 호스트에 접속하지 못했습니다."
-          }
-        }
-      }
-    },
-    "Could not run ssh on this Mac.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not run ssh on this Mac."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac에서 ssh를 실행하지 못했습니다."
-          }
-        }
-      }
-    },
-    "Could not write the background service definition.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not write the background service definition."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "백그라운드 서비스 정의를 기록하지 못했습니다."
+            "value": "이 주소에서 Damso 서버에 연결할 수 없습니다."
           }
         }
       }
@@ -1805,6 +1709,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "새 인물 만들기"
+          }
+        }
+      }
+    },
+    "Create the summary again from the current transcript.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create the summary again from the current transcript."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 전사 내용으로 요약을 다시 생성합니다."
           }
         }
       }
@@ -1901,22 +1821,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Damso는 이벤트 추가까지만 담당합니다. 수정과 삭제는 캘린더에서 직접 하고, 재요약해도 기존 이벤트는 바뀌지 않습니다."
-          }
-        }
-      }
-    },
-    "Damso was copied but its signature could not be verified on the server.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Damso was copied but its signature could not be verified on the server."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Damso를 복사했지만 서버에서 서명을 확인하지 못했습니다."
           }
         }
       }
@@ -2273,34 +2177,18 @@
         }
       }
     },
-    "Enter the server's SSH host first.": {
+    "Enter the server address and its access token.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter the server's SSH host first."
+            "value": "Enter the server address and its access token."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "먼저 서버의 SSH 호스트를 입력하세요."
-          }
-        }
-      }
-    },
-    "Enter the server's SSH host plus its absolute interpreter and store paths.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter the server's SSH host plus its absolute interpreter and store paths."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "서버의 SSH 호스트와 인터프리터, 저장소의 절대 경로를 입력하세요."
+            "value": "서버 주소와 액세스 토큰을 입력하세요."
           }
         }
       }
@@ -4385,6 +4273,22 @@
         }
       }
     },
+    "Paired. Regenerating the server's token requires pairing again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired. Regenerating the server's token requires pairing again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링되었습니다. 서버에서 토큰을 다시 생성하면 페어링을 다시 해야 합니다."
+          }
+        }
+      }
+    },
     "Participant capture": {
       "localizations": {
         "en": {
@@ -4737,6 +4641,22 @@
         }
       }
     },
+    "Printed by `damso-server-credentials generate` on the server. Save it now - it is shown only once there.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Printed by `damso-server-credentials generate` on the server. Save it now - it is shown only once there."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버에서 `damso-server-credentials generate`가 출력한 값입니다. 그곳에서 한 번만 표시되니 지금 저장해 두세요."
+          }
+        }
+      }
+    },
     "Processing": {
       "localizations": {
         "en": {
@@ -4765,6 +4685,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "처리 환경"
+          }
+        }
+      }
+    },
+    "Processing failed on the server. Check server diagnostics and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing failed on the server. Check server diagnostics and retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버에서 처리가 실패했습니다. 서버 진단을 확인하고 재시도하세요."
           }
         }
       }
@@ -4909,22 +4845,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Python 3.11 이상"
-          }
-        }
-      }
-    },
-    "Python interpreter path": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Python interpreter path"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파이썬 인터프리터 경로"
           }
         }
       }
@@ -5473,6 +5393,54 @@
         }
       }
     },
+    "Run again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 실행"
+          }
+        }
+      }
+    },
+    "Run transcription again from the stored recording. Confirmed speakers and the summary start over.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run transcription again from the stored recording. Confirmed speakers and the summary start over."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 녹음에서 전사를 다시 실행합니다. 확인한 화자와 요약은 처음부터 다시 진행합니다."
+          }
+        }
+      }
+    },
+    "Run transcription again?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run transcription again?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사를 다시 실행할까요?"
+          }
+        }
+      }
+    },
     "Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them.": {
       "localizations": {
         "en": {
@@ -5485,38 +5453,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "현재 트랜스크립트로 요약을 다시 생성합니다. 화자 이름을 확정한 뒤 실행하면 요약에 이름이 반영됩니다."
-          }
-        }
-      }
-    },
-    "SSH connection": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH connection"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 연결"
-          }
-        }
-      }
-    },
-    "SSH host": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH host"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 호스트"
           }
         }
       }
@@ -5693,6 +5629,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "서버 Mac"
+          }
+        }
+      }
+    },
+    "Server address": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server address"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버 주소"
+          }
+        }
+      }
+    },
+    "Server storage is not configured. Set it up in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server storage is not configured. Set it up in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버 저장소가 설정되지 않았습니다. 설정에서 구성하세요."
           }
         }
       }
@@ -6385,6 +6353,22 @@
         }
       }
     },
+    "Summary pending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary pending"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 대기 중"
+          }
+        }
+      }
+    },
     "Summary retry needed": {
       "localizations": {
         "en": {
@@ -6673,6 +6657,38 @@
         }
       }
     },
+    "The access token could not be saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The access token could not be saved."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액세스 토큰을 저장하지 못했습니다."
+          }
+        }
+      }
+    },
+    "The access token is incorrect.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The access token is incorrect."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액세스 토큰이 올바르지 않습니다."
+          }
+        }
+      }
+    },
     "The agent found no speaker it could support with transcript evidence.": {
       "localizations": {
         "en": {
@@ -6737,6 +6753,38 @@
         }
       }
     },
+    "The combined playback audio is missing. Restore both captured tracks and retry local processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The combined playback audio is missing. Restore both captured tracks and retry local processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "합쳐진 재생용 오디오가 없습니다. 캡처된 두 트랙을 복원한 뒤 처리를 재시도하세요."
+          }
+        }
+      }
+    },
+    "The combined playback audio was not created safely. Restore both captured tracks and retry local processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The combined playback audio was not created safely. Restore both captured tracks and retry local processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "합쳐진 재생용 오디오가 안전하게 생성되지 않았습니다. 캡처된 두 트랙을 복원한 뒤 처리를 재시도하세요."
+          }
+        }
+      }
+    },
     "The command-line tool for this service is not installed.": {
       "localizations": {
         "en": {
@@ -6781,22 +6829,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이메일이 저장되지 않았습니다. 일반적인 주소 형식인지 확인하고 재시도하세요."
-          }
-        }
-      }
-    },
-    "The host responded but did not report its home directory.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The host responded but did not report its home directory."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "호스트가 응답했지만 홈 디렉터리를 알려주지 않았습니다."
           }
         }
       }
@@ -6881,22 +6913,6 @@
         }
       }
     },
-    "The name you use with ssh, for example a ~/.ssh/config alias. Key-based login must already work from Terminal.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The name you use with ssh, for example a ~/.ssh/config alias. Key-based login must already work from Terminal."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ssh에 사용하는 이름입니다. 예를 들어 ~/.ssh/config의 alias입니다. 터미널에서 키 기반 로그인이 이미 되어야 합니다."
-          }
-        }
-      }
-    },
     "The original local audio is unavailable, so this meeting cannot be reprocessed.": {
       "localizations": {
         "en": {
@@ -6925,6 +6941,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "인물을 삭제하지 못했습니다. 프로필은 그대로이니 로컬 저장소를 확인한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "The previous speaker-review artifacts could not be cleared safely. Check this meeting folder, then retry local processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous speaker-review artifacts could not be cleared safely. Check this meeting folder, then retry local processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 화자 확인 산출물을 안전하게 정리하지 못했습니다. 이 미팅 폴더를 확인한 뒤 처리를 재시도하세요."
           }
         }
       }
@@ -7053,6 +7085,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "확인된 전사를 요약하고 있습니다. 완료되면 제목이 자동으로 갱신됩니다."
+          }
+        }
+      }
+    },
+    "The server's hostname or IP address, and the port `make install-server` reported.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server's hostname or IP address, and the port `make install-server` reported."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버의 호스트 이름 또는 IP 주소와, `make install-server`가 알려준 포트입니다."
           }
         }
       }
@@ -7201,6 +7249,22 @@
         }
       }
     },
+    "This Mac has an old SSH-based server connection from before this update. It no longer works. Run `make install-server` on that Mac, then pair again below with its new address and access token.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has an old SSH-based server connection from before this update. It no longer works. Run `make install-server` on that Mac, then pair again below with its new address and access token."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 업데이트 이전의 SSH 기반 서버 연결이 남아 있습니다. 더 이상 동작하지 않습니다. 해당 Mac에서 `make install-server`를 실행한 뒤, 아래에서 새 주소와 액세스 토큰으로 다시 페어링하세요."
+          }
+        }
+      }
+    },
     "This Mac is not Apple Silicon; local transcription cannot run there.": {
       "localizations": {
         "en": {
@@ -7249,18 +7313,34 @@
         }
       }
     },
-    "This build has no bundled helper package; install Damso with `make install-local-app` first.": {
+    "This Mac was paired with a server that used its own certificate. Damso now connects over a trusted private network instead, so that pairing no longer works. Run `make install-server` on that Mac, then pair again below with its new access token.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build has no bundled helper package; install Damso with `make install-local-app` first."
+            "value": "This Mac was paired with a server that used its own certificate. Damso now connects over a trusted private network instead, so that pairing no longer works. Run `make install-server` on that Mac, then pair again below with its new access token."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 빌드에는 헬퍼 패키지가 포함되어 있지 않습니다. 먼저 `make install-local-app`으로 Damso를 설치하세요."
+            "value": "이 Mac은 자체 인증서를 쓰던 서버와 페어링되어 있습니다. 담소는 이제 신뢰하는 사설망으로 연결하므로 그 페어링은 더 이상 동작하지 않습니다. 해당 Mac에서 `make install-server`를 실행한 뒤, 새 액세스 토큰으로 아래에서 다시 페어링하세요."
+          }
+        }
+      }
+    },
+    "This address is not on a private network. Damso talks to a server Mac without its own encryption, so use it only over Tailscale, a VPN, or a LAN you trust.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This address is not on a private network. Damso talks to a server Mac without its own encryption, so use it only over Tailscale, a VPN, or a LAN you trust."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 주소는 사설망이 아닙니다. 담소는 서버 Mac과 자체 암호화 없이 통신하므로, Tailscale이나 VPN 또는 신뢰하는 LAN에서만 사용하세요."
           }
         }
       }
@@ -7341,6 +7421,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "서버가 준비되었습니다. 저장하면 사용을 시작합니다."
+          }
+        }
+      }
+    },
+    "This server needs a Damso update before pairing can continue.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This server needs a Damso update before pairing can continue."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 계속하려면 서버의 Damso를 먼저 업데이트해야 합니다."
           }
         }
       }
@@ -7533,6 +7629,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "전사 및 화자 분리 모델이 설치되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "Transcription restarts from the stored recording. Confirmed speakers and the summary are cleared and need to be redone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription restarts from the stored recording. Confirmed speakers and the summary are cleared and need to be redone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 녹음에서 전사를 처음부터 다시 실행합니다. 확인한 화자와 요약이 초기화되어 다시 진행해야 합니다."
           }
         }
       }

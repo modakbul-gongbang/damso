@@ -41,6 +41,10 @@ struct DesignReviewWindow: View {
     @State private var sourceFilter: MeetingSourceFilter = .all
     @State private var duplicatesOnly = false
     @State private var pendingDelete: MeetingRecord?
+    /// Transcription re-run wipes confirmed speakers and the summary, so it
+    /// always confirms first - the incident that moved this action off the
+    /// toolbar started with one unconfirmed press on a completed meeting.
+    @State private var pendingTranscriptionRerun: MeetingRecord?
     @State private var pendingPersonDelete: LocalPersonProfile?
     /// Meetings the user hid from the "Needs your action" block this session;
     /// they drop to the list below instead of being deleted.
@@ -121,6 +125,18 @@ struct DesignReviewWindow: View {
         } message: {
             Text(Loc.tr("The recording, transcript, and summary are removed from this Mac. This cannot be undone."))
         }
+        .alert(Loc.tr("Run transcription again?"), isPresented: Binding(
+            get: { pendingTranscriptionRerun != nil },
+            set: { if !$0 { pendingTranscriptionRerun = nil } }
+        )) {
+            Button(Loc.tr("Cancel"), role: .cancel) { pendingTranscriptionRerun = nil }
+            Button(Loc.tr("Run again"), role: .destructive) {
+                pendingTranscriptionRerun = nil
+                Task { await workspace.retrySelectedPhaseOne() }
+            }
+        } message: {
+            Text(Loc.tr("Transcription restarts from the stored recording. Confirmed speakers and the summary are cleared and need to be redone."))
+        }
         .alert(
             String(format: Loc.tr("Delete “%@” from People?"), pendingPersonDelete?.name ?? ""),
             isPresented: Binding(
@@ -146,6 +162,20 @@ struct DesignReviewWindow: View {
     private var deleteConfirmationTitle: String {
         guard let record = pendingDelete else { return Loc.tr("Delete meeting") }
         return String(format: Loc.tr("Delete “%@”?"), meetingDisplayTitle(record))
+    }
+
+    /// Same availability the toolbar's removed "Retry processing" button had:
+    /// there must be a stored recording to re-run from, and nothing else
+    /// already recording or processing.
+    private func canRerunTranscription(_ record: MeetingRecord) -> Bool {
+        record.originalAudioFile != nil && !workspace.isRecording && workspace.state != .processing
+    }
+
+    /// Mirrors `runSummary`'s own preconditions so the chip only invites a
+    /// tap that can actually start: a transcript to summarize, and no summary
+    /// request already in flight.
+    private func canRerunSummary(_ record: MeetingRecord) -> Bool {
+        !workspace.processingArtifacts.transcript.isEmpty && !workspace.isRequestingSummary && workspace.state != .processing && !workspace.isRecording
     }
 
     // MARK: Sidebar
@@ -1004,7 +1034,12 @@ struct DesignReviewWindow: View {
                         DetailTabBar(selection: $meetingDetailTab)
                             .accessibilityIdentifier("damso.detail-tabs")
                         Spacer(minLength: 8)
-                        PipelineStageIndicator(record: record, artifacts: workspace.processingArtifacts)
+                        PipelineStageIndicator(
+                            record: record,
+                            artifacts: workspace.processingArtifacts,
+                            onRerunTranscription: canRerunTranscription(record) ? { pendingTranscriptionRerun = record } : nil,
+                            onRerunSummary: canRerunSummary(record) ? { Task { await workspace.runSummary() } } : nil
+                        )
                     }
                 }
                 .padding(.horizontal, 28)
@@ -1029,10 +1064,12 @@ struct DesignReviewWindow: View {
                         loadCorrections(for: record)
                         isCorrectionPresented = true
                     }
-                    Button(Loc.tr("Retry processing"), systemImage: "arrow.clockwise") {
-                        Task { await workspace.retrySelectedPhaseOne() }
-                    }
-                    .disabled(record.originalAudioFile == nil || workspace.isRecording || workspace.state == .processing)
+                    // "Retry processing" deliberately has no toolbar button:
+                    // next to Edit and Delete it read as a harmless refresh,
+                    // and a real user pressed it on a completed meeting
+                    // expecting a summary retry - wiping their confirmed
+                    // speakers. Re-running a stage now lives on that stage's
+                    // own pipeline chip, where the label says what restarts.
                     Button(Loc.tr("Delete meeting"), systemImage: "trash", role: .destructive) {
                         pendingDelete = record
                     }
@@ -1988,6 +2025,13 @@ struct PipelineStageIndicator: View {
 
     let record: MeetingRecord
     let artifacts: MeetingProcessingArtifacts
+    /// Stage re-runs live on the stage chips themselves (the toolbar's old
+    /// "Retry processing" icon read as a harmless refresh next to Edit and
+    /// Delete, and a real user pressed it expecting a summary retry). A nil
+    /// action keeps that chip a plain status indicator - the caller decides
+    /// availability, this view only renders it.
+    var onRerunTranscription: (() -> Void)? = nil
+    var onRerunSummary: (() -> Void)? = nil
 
     private var steps: [(title: String, block: DamsoBlockColor, state: StepState)] {
         let hasTranscript = !artifacts.transcript.isEmpty
@@ -2031,12 +2075,37 @@ struct PipelineStageIndicator: View {
 
     var body: some View {
         HStack(spacing: DamsoTokens.spacingXS) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                StageSegment(title: step.title, block: step.block, state: step.state)
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                StageSegment(
+                    title: step.title,
+                    block: step.block,
+                    state: step.state,
+                    rerunAction: rerunAction(forStepAt: index),
+                    rerunHelp: rerunHelp(forStepAt: index)
+                )
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Loc.tr("Pipeline progress"))
+    }
+
+    /// Steps are (0) captured, (1) transcribed, (2) speakers, (3) summary.
+    /// Capture cannot be re-run (the meeting happened once), and speakers
+    /// re-run through the speaker tab's own recluster/confirm flow.
+    private func rerunAction(forStepAt index: Int) -> (() -> Void)? {
+        switch index {
+        case 1: onRerunTranscription
+        case 3: onRerunSummary
+        default: nil
+        }
+    }
+
+    private func rerunHelp(forStepAt index: Int) -> String? {
+        switch index {
+        case 1: Loc.tr("Run transcription again from the stored recording. Confirmed speakers and the summary start over.")
+        case 3: Loc.tr("Create the summary again from the current transcript.")
+        default: nil
+        }
     }
 }
 
@@ -2044,17 +2113,23 @@ private struct StageSegment: View {
     let title: String
     let block: DamsoBlockColor
     let state: PipelineStageIndicator.StepState
+    var rerunAction: (() -> Void)? = nil
+    var rerunHelp: String? = nil
+
+    @State private var isHovering = false
 
     private var effectiveBlock: DamsoBlockColor {
         state == .failed ? DamsoTokens.blockCoral : block
     }
 
     private var icon: String {
+        // A hovered re-runnable chip previews the action it triggers.
+        if rerunAction != nil, isHovering { return "arrow.clockwise" }
         switch state {
-        case .complete: "checkmark"
-        case .current: "arrow.right"
-        case .failed: "exclamationmark.triangle.fill"
-        case .pending: "circle"
+        case .complete: return "checkmark"
+        case .current: return "arrow.right"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .pending: return "circle"
         }
     }
 
@@ -2068,8 +2143,23 @@ private struct StageSegment: View {
     }
 
     var body: some View {
-        // Compact intrinsic-width chip: the four stages read as a small strip
-        // beside the tab bar instead of a full-width row.
+        if let rerunAction {
+            Button(action: rerunAction) { chip }
+                .buttonStyle(.plain)
+                .onHover { isHovering = $0 }
+                .help(rerunHelp ?? "")
+                .accessibilityLabel("\(title), \(stateName)")
+                .accessibilityHint(rerunHelp ?? "")
+        } else {
+            chip
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title), \(stateName)")
+        }
+    }
+
+    /// Compact intrinsic-width chip: the four stages read as a small strip
+    /// beside the tab bar instead of a full-width row.
+    private var chip: some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
                 .font(.caption2.weight(.bold))
@@ -2088,11 +2178,15 @@ private struct StageSegment: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: DamsoTokens.radiusSM)
-                .strokeBorder(state == .current ? effectiveBlock.inkColor.opacity(0.7) : DamsoTokens.hairline, lineWidth: state == .current ? 1.5 : 1)
+                .strokeBorder(strokeColor, lineWidth: state == .current || (rerunAction != nil && isHovering) ? 1.5 : 1)
         )
         .fixedSize()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(stateName)")
+    }
+
+    private var strokeColor: Color {
+        if state == .current { return effectiveBlock.inkColor.opacity(0.7) }
+        if rerunAction != nil, isHovering { return effectiveBlock.inkColor.opacity(0.5) }
+        return DamsoTokens.hairline
     }
 }
 

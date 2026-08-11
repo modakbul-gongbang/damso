@@ -27,7 +27,7 @@ Damso lives in your menu bar, detects the meeting the moment your mic goes live,
 - 🔄 **Your wrist recorder syncs itself.** Connect a [Plaud](https://www.plaud.ai) account through the official Plaud CLI and recordings from your wearable arrive on their own - checked hourly, deduplicated, marked with a `Plaud` chip, and fed straight into the same local pipeline.
 - 🗣️ **Who said what, not just what.** Local diarization splits speakers, voice embeddings suggest who each voice is, and captured participant names from the meeting tab narrow it to one click.
 - 🧑‍🤝‍🧑 **People, accumulated.** Every confirmed speaker grows a profile: meeting history, aliases, voice signature, and durable notes. Your meetings become a who-is-who you own.
-- 🔒 **Local-first, files-first.** Audio, transcripts, and profiles are plain folders and Markdown on your disk. The search index is derived and always rebuildable. Audio never leaves your Mac(s) - by default that's the one Mac you're using; optionally, a second Mac you own can hold the canonical store and do the processing instead, reached only by SSH over your own network.
+- 🔒 **Local-first, files-first.** Audio, transcripts, and profiles are plain folders and Markdown on your disk. The search index is derived and always rebuildable. Audio never leaves your Mac(s) - by default that's the one Mac you're using, reached over a loopback connection only this Mac can see; optionally, a second Mac you own can hold the canonical store and do the processing instead, reached over your own private network with a token only you hold.
 
 <div align="center">
 <picture>
@@ -52,7 +52,7 @@ hourly pull · 7-day catch-up · dedup · same local pipeline
 - **Wearable recordings come to you.** External Sync polls the official Plaud CLI once an hour (or on demand), imports anything new from the last seven days, validates the audio, and queues it for transcription - sequentially, so a backlog never floods your machine. Interrupted work resumes on the next launch, and a watermark plus per-file index guarantees a recording is never imported twice.
 - **One manual step.** After recording, transcription and speaker separation run locally and automatically. You confirm each detected voice from candidate suggestions - participant names captured live from the meeting tab appear first. The moment the last card is decided, the summary and title generate themselves.
 - **Files are the source of truth.** Every meeting is a folder (`Plaud/recordings/<id>/`) of plain JSON and Markdown. The SQLite index is derived from those files and can always be rebuilt from them - deterministically, with no LLM call.
-- **MCP search built in.** A read-only stdio MCP server exposes `search_meetings`, `get_meeting`, `get_speaker`, and `search_people`, so Claude Desktop or any MCP client can search your meetings and people locally. Keyword search runs on a local FTS5 + BM25 index (no LLM, no network) and ranks by relevance instead of just newest-first.
+- **MCP search built in.** A read-only MCP server exposes `search_meetings`, `get_meeting`, `get_speaker`, and `search_people` at `/mcp` on the daemon, so Claude Code or any MCP client can search your meetings and people locally. Keyword search runs on a local FTS5 + BM25 index (no LLM, no network) and ranks by relevance instead of just newest-first.
 - **Your choice of agent.** Summaries and titles run through the CLI you already use - Claude Code or Codex - in a sandbox that cannot read or write your meeting store, receives only transcript text, and returns only schema-validated JSON.
 - **Korean or English.** The interface and all generated output follow the in-app language setting. Korean is the default.
 
@@ -71,13 +71,13 @@ Every detected voice becomes a card: play a short sample, see its strongest line
 
 Read this before using automatic summaries:
 
-- Audio never leaves your Mac(s) and never reaches a third party. By default, everything - detection, recording, transcription, diarization - runs on the one Mac you're using. Optionally, you can point Damso at a second Apple Silicon Mac you own to hold the canonical store and run transcription (mlx-whisper) and diarization (sherpa-onnx) there instead; in that setup, the recording laptop transfers audio to that Mac over SSH once capture stops, and only to it - never to a third-party server. Transcription and diarization are always fully local to whichever Mac owns the store.
+- Audio never leaves your Mac(s) and never reaches a third party. By default, everything - detection, recording, transcription, diarization - runs on the one Mac you're using, reached over a loopback connection nothing outside that Mac can see. Optionally, you can point Damso at a second Apple Silicon Mac you own to hold the canonical store and run transcription (mlx-whisper) and diarization (sherpa-onnx) there instead; in that setup, the recording laptop uploads audio to that Mac once capture stops, over your own private network and with a token only you hold, and only to it - never to a third-party server. Transcription and diarization are always fully local to whichever Mac owns the store.
 - Meeting detection and participant capture are local signals (CoreAudio process activity, your own browser via the chromux extension). Participant names are stored in the meeting folder and never sent anywhere except as part of the transcript context you already approved.
 - Names from your people directory seed the local transcription prompt so Whisper spells them consistently. Up to 20 recently seen profile names are passed in memory to the local mlx-whisper process; they are never written to `hint.json` and never leave this Mac.
 - External Sync talks to Plaud **only through the official Plaud CLI**, read-only. Your Plaud session lives in `~/.plaud`, owned by the CLI; Damso never reads, stores, or logs a token. Login happens in your browser via `plaud login`, and downloaded audio goes straight into your local store.
 - **Transcript text is sent to your selected agent CLI (Claude Code or Codex) automatically after you confirm the speakers of a meeting.** Those CLIs talk to their cloud model providers with your signed-in account. There is no per-meeting confirmation step and no sensitivity flag - if a meeting should never reach an LLM provider, do not confirm its speakers, or work without a signed-in agent CLI.
 - The agent CLI is sandboxed away from your meeting store (`sandbox-exec` denies the storage root), gets an empty temporary working directory, has its built-in tools disabled, and its response is validated against a fixed JSON schema.
-- The MCP server is read-only; it never writes meeting data. Its own protocol never opens a network socket - it always speaks stdio. In the default single-machine setup that means no network involvement at all. In a two-machine setup, the client launches it on the server Mac over an SSH connection you configure yourself (see [Remote (two-machine setup)](#remote-two-machine-setup)); that SSH connection is a real network socket, but it only ever reaches the Mac you named, never a third party.
+- The MCP server is read-only; it never writes meeting data. Damso's own HTTP daemon owns the canonical store and everything that touches it, local or remote (see [Remote (two-machine setup)](#remote-two-machine-setup)). In the default single-machine setup, that daemon binds only to `127.0.0.1` - nothing outside this Mac can reach it, and it needs no token. In a two-machine setup, the daemon on the server Mac binds to your network and requires a bearer token generated on that Mac and shared only with you. It carries no encryption of its own, so run it only over a network that already provides privacy - a Tailscale tailnet, a VPN, or a LAN you trust - and Damso warns you at pairing time if the address you enter is not on a private network. It reaches only the server Mac you paired with, never a third party.
 
 ## Install
 
@@ -104,8 +104,10 @@ plaud login              # opens your browser; Damso never touches the token
 
 ## MCP server
 
-```sh
-DAMSO_STORE=... make mcp
+The HTTP daemon serves MCP Streamable HTTP directly, local or remote, at the same `/mcp` path:
+
+```json
+{ "url": "http://127.0.0.1:8787/mcp" }
 ```
 
 Tools: `search_meetings(date, speaker, keyword)`, `get_meeting(stem)`, `get_speaker(name)`, `search_people(keyword)`.
@@ -114,22 +116,17 @@ The index is rebuilt automatically by the app after each pipeline step, and auto
 
 ### Remote (two-machine setup)
 
-Damso can put the canonical store and all heavy processing on a second Apple Silicon Mac you own, while your laptop keeps detecting and recording meetings. Settings → **Server Mac** takes an SSH host, checks what the server is missing, and installs the rest itself - the app bundle, a virtualenv with the pinned processing dependencies, the local models, and a LaunchAgent. The server needs no Xcode and no git checkout. See the two-machine section of [INSTALL.md](INSTALL.md#two-machine-setup-server-mac).
+Damso can put the canonical store and all heavy processing on a second Apple Silicon Mac you own, while your laptop keeps detecting and recording meetings.
+`make install-server` on that Mac installs the daemon and generates an access token; Settings → **Server Mac** on your laptop takes the address and that token and pairs (D-08). The connection has no encryption of its own, so keep both Macs on a network that does - Tailscale, a VPN, or a LAN you trust. See the two-machine section of [INSTALL.md](INSTALL.md#two-machine-setup-server-mac).
 
-When the store lives on that server, point the MCP client's server command at `scripts/mcp-remote.sh` instead of `make mcp`, with the connection details as environment variables in the client's own server config (not a shell profile - most MCP clients spawn the command with a minimal environment):
+When the store lives on that server, point the MCP client at its address with the same bearer token instead of the loopback URL above:
 
 ```json
 {
-  "command": "/absolute/path/to/damso/scripts/mcp-remote.sh",
-  "env": {
-    "DAMSO_REMOTE_HOST": "mini",
-    "DAMSO_REMOTE_INTERPRETER": "/opt/homebrew/bin/python3.12",
-    "DAMSO_REMOTE_STORE": "/absolute/path/to/Library/Application Support/Damso"
-  }
+  "url": "http://<server-host>:8787/mcp",
+  "headers": { "Authorization": "Bearer <token from make install-server>" }
 }
 ```
-
-The script runs `damso.mcp` on the mini over ssh stdio, so queries never leave the two machines.
 
 ## Development
 

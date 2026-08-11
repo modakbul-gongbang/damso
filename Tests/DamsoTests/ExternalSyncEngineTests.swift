@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 import Testing
 @testable import Damso
@@ -264,25 +263,23 @@ func commitImportedMovesAudioAtomicallyAndRejectsDuplicates() throws {
 }
 
 // MARK: End-to-end import path (AC6, AC10, D-16)
+//
+// D-13 moved phase-one off `LocalProcessingBackend` entirely (it is
+// queue-based now, triggered and polled through `RemoteMeetingStore`
+// directly), so the held-import → speaker-plan → transcribing → speaker
+// review pipeline this section used to exercise via a fake synchronous
+// backend now needs a real or fake HTTP server to test meaningfully; that
+// coverage lives in the Python-side loopback integration suite
+// (`test_server_http.py`) instead. What remains here covers the import sink
+// itself (validation, dedup, discard-on-failure), which is unchanged.
 
 private final class SyncFakeBackend: LocalProcessingBackend, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _phaseOneRequests: [LocalProcessingRequest] = []
-
-    var phaseOneRequests: [LocalProcessingRequest] { lock.withLock { _phaseOneRequests } }
-
-    func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
-        lock.withLock { _phaseOneRequests.append(request) }
-        return LocalProcessingResult(ok: true, stage: "complete", speakerCount: 1)
-    }
-
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func removePersonAlias(_ request: LocalRemovePersonAliasRequest) throws -> LocalProcessingResult { fatalError("unused") }
-    func runSummary(_ request: LocalSummaryRequest) throws -> LocalSummaryResult { fatalError("unused") }
     func suggestSpeakers(_ request: LocalSpeakerHintsRequest) throws -> LocalSpeakerHintsResult { fatalError("unused") }
     func cleanTranscript(_ request: LocalTranscriptCleanupRequest) throws -> LocalTranscriptCleanupResult { fatalError("unused") }
     func rebuildIndex(storeRoot: String) throws -> LocalIndexResult { LocalIndexResult(ok: true, meetings: 0) }
@@ -293,176 +290,6 @@ private final class SyncNoopCapture: RecordingCapture {
     func permissionState() async -> RecordingPermissionState { .ready }
     func start(in recordingDirectory: URL) async throws -> CapturedAudioFiles { fatalError("unused") }
     func stop() async throws -> CapturedAudioFiles { fatalError("unused") }
-}
-
-private func writePlayableAudio(to url: URL) throws {
-    let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
-    let file = try AVAudioFile(forWriting: url, settings: format.settings)
-    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 3_200)!
-    buffer.frameLength = 3_200
-    try file.write(from: buffer)
-}
-
-@Test @MainActor
-func importedRecordingIsHeldThenStartsThePipelineWithTheSpeakerPlan() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    try store.bootstrap()
-    let backend = SyncFakeBackend()
-    let workspace = MeetingWorkspaceController(store: store, capture: SyncNoopCapture(), backend: backend)
-
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let provider = FakeSyncProvider()
-    let audioFixture = FileManager.default.temporaryDirectory.appendingPathComponent("fixture-\(UUID().uuidString).caf")
-    try writePlayableAudio(to: audioFixture)
-    provider.audioPayload = try Data(contentsOf: audioFixture)
-    try? FileManager.default.removeItem(at: audioFixture)
-    provider.recordings = [ExternalRecording(remoteID: "wrist001", title: nil, startedAt: now.addingTimeInterval(-60 * 60))]
-
-    let sink = ExternalSyncController.makeImportSink(providerID: provider.id, storeRoot: root, workspace: workspace)
-    let engine = ExternalSyncEngine(provider: provider, importSink: sink)
-
-    let outcome = await engine.syncNow(now: now)
-    #expect(outcome == .completed(imported: 1, retryableFailures: 0))
-
-    let record = try store.load(stem: "fakeprov-wrist001")
-    #expect(record.source == .plaud)
-    #expect(record.title.isEmpty)
-    #expect(record.durationSeconds ?? 0 > 0)
-    #expect(record.originalAudioFile == "recording.caf")
-
-    // A fresh import is held before transcription so the user can set the
-    // expected speaker count first; nothing is transcribed automatically.
-    workspace.refreshLibrary()
-    #expect(workspace.isHeldImport(record))
-    for _ in 0..<10 where backend.phaseOneRequests.isEmpty {
-        try await Task.sleep(nanoseconds: 50_000_000)
-    }
-    #expect(backend.phaseOneRequests.isEmpty)
-
-    // Releasing the hold applies the plan and starts the local pipeline; the
-    // chosen speaker count rides through to the diarizer request.
-    workspace.startHeldImport(stem: record.stem, speakerCount: 3, participants: ["송주은"])
-    for _ in 0..<50 where backend.phaseOneRequests.isEmpty {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(backend.phaseOneRequests.count == 1)
-    #expect(backend.phaseOneRequests.first?.systemAudioPath == nil)
-    #expect(backend.phaseOneRequests.first?.hints.numSpeakers == 3)
-    #expect(backend.phaseOneRequests.first?.hints.participants == ["송주은"])
-    #expect(try store.load(stem: record.stem).isHeldImportCleared)
-}
-
-private extension MeetingRecord {
-    /// After the hold is released the record leaves `.captured`, so this is a
-    /// readable stand-in for "no longer awaiting a speaker plan".
-    var isHeldImportCleared: Bool { stage != .captured }
-}
-
-/// While its turn is actually running, an imported meeting shows the live
-/// "Transcribing" stage instead of a stale queued badge; the badge lands on
-/// speaker review when the subprocess finishes.
-@Test @MainActor
-func importedProcessingShowsTranscribingWhileRunning() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "fakeprov-live", source: .plaud, title: ""))
-    record.stage = .queued
-    record.originalAudioFile = "recording.caf"
-    try store.commit(record, artifacts: ["recording.caf": Data("audio".utf8)])
-
-    final class GatedBackend: LocalProcessingBackend, @unchecked Sendable {
-        let gate = DispatchSemaphore(value: 0)
-        func runPhaseOne(_ request: LocalProcessingRequest) throws -> LocalProcessingResult {
-            gate.wait()
-            return LocalProcessingResult(ok: true, stage: "complete", speakerCount: 1)
-        }
-
-        func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func removePersonAlias(_ request: LocalRemovePersonAliasRequest) throws -> LocalProcessingResult { fatalError("unused") }
-        func runSummary(_ request: LocalSummaryRequest) throws -> LocalSummaryResult { fatalError("unused") }
-        func suggestSpeakers(_ request: LocalSpeakerHintsRequest) throws -> LocalSpeakerHintsResult { fatalError("unused") }
-        func cleanTranscript(_ request: LocalTranscriptCleanupRequest) throws -> LocalTranscriptCleanupResult { fatalError("unused") }
-        func rebuildIndex(storeRoot: String) throws -> LocalIndexResult { LocalIndexResult(ok: true, meetings: 0) }
-    }
-    let backend = GatedBackend()
-    let workspace = MeetingWorkspaceController(store: store, capture: SyncNoopCapture(), backend: backend)
-    workspace.refreshLibrary()
-    workspace.processImportedMeeting(stem: "fakeprov-live")
-
-    for _ in 0..<50 where (try? store.load(stem: "fakeprov-live"))?.stage != .transcribing {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(try store.load(stem: "fakeprov-live").stage == .transcribing)
-
-    backend.gate.signal()
-    for _ in 0..<50 where (try? store.load(stem: "fakeprov-live"))?.stage != .speakerReview {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(try store.load(stem: "fakeprov-live").stage == .speakerReview)
-}
-
-/// A quit mid-transcription leaves an imported meeting in the queued stage;
-/// the launch-time resume restarts it so external sync's automatic pipeline
-/// promise survives restarts (R6).
-@Test @MainActor
-func interruptedImportedProcessingResumesOnLaunch() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "fakeprov-interrupted", source: .plaud, title: ""))
-    record.stage = .queued
-    record.originalAudioFile = "recording.caf"
-    try store.commit(record, artifacts: ["recording.caf": Data("audio".utf8)])
-
-    let backend = SyncFakeBackend()
-    let workspace = MeetingWorkspaceController(store: store, capture: SyncNoopCapture(), backend: backend)
-    workspace.refreshLibrary()
-    workspace.resumeInterruptedImportedProcessing()
-
-    for _ in 0..<50 where backend.phaseOneRequests.isEmpty {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(backend.phaseOneRequests.count == 1)
-    for _ in 0..<50 where (try? store.load(stem: "fakeprov-interrupted"))?.stage != .speakerReview {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(try store.load(stem: "fakeprov-interrupted").stage == .speakerReview)
-}
-
-/// Regression guard for D-08/R8/AC10: a crash between committing an imported
-/// download and ever calling `processImportedMeeting` leaves the record in
-/// `.captured`, one stage earlier than `.queued` above - the gap the launch
-/// sweep's filter used to miss entirely before `.captured` was added to it.
-@Test @MainActor
-func interruptedImportedProcessingResumesACapturedRecordTooNotJustQueued() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let store = MeetingStore(root: root, minimumFreeBytes: 0)
-    var record = try store.createRecord(MeetingDraft(stem: "fakeprov-captured", source: .plaud, title: ""))
-    record.stage = .captured
-    record.originalAudioFile = "recording.caf"
-    try store.commit(record, artifacts: ["recording.caf": Data("audio".utf8)])
-
-    let backend = SyncFakeBackend()
-    let workspace = MeetingWorkspaceController(store: store, capture: SyncNoopCapture(), backend: backend)
-    workspace.refreshLibrary()
-    workspace.resumeInterruptedImportedProcessing()
-
-    for _ in 0..<50 where backend.phaseOneRequests.isEmpty {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(backend.phaseOneRequests.count == 1)
-    for _ in 0..<50 where (try? store.load(stem: "fakeprov-captured"))?.stage != .speakerReview {
-        try await Task.sleep(nanoseconds: 100_000_000)
-    }
-    #expect(try store.load(stem: "fakeprov-captured").stage == .speakerReview)
 }
 
 @Test @MainActor
@@ -478,7 +305,7 @@ func unplayableDownloadIsDiscardedAndNeverAppearsInTheMeetingList() async throws
     provider.audioPayload = Data("definitely-not-audio".utf8)
     provider.recordings = [ExternalRecording(remoteID: "corrupt01", startedAt: now.addingTimeInterval(-60 * 60))]
 
-    let sink = ExternalSyncController.makeImportSink(providerID: provider.id, storeRoot: root, workspace: workspace)
+    let sink = ExternalSyncController.makeImportSink(providerID: provider.id, workspace: workspace)
     let engine = ExternalSyncEngine(provider: provider, importSink: sink)
 
     let outcome = await engine.syncNow(now: now)

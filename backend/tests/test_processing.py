@@ -643,6 +643,30 @@ class ProcessingTests(unittest.TestCase):
 
         self.assertEqual(force_stops, ["forced"])
 
+    def test_termination_handlers_are_a_noop_off_the_main_thread(self):
+        """Python allows signal handler installation only on the main
+        thread. The HTTP server's ProcessingQueue runs phase-one on a worker
+        thread, where installing these SSH-era CLI handlers raised "signal
+        only works in main thread" and killed every real server-side
+        re-transcription (found via a real two-machine run). Off the main
+        thread the scope must degrade to a no-op instead."""
+        import threading
+
+        outcome: dict = {}
+
+        def run() -> None:
+            try:
+                with deferred_processing_termination_handlers(lambda: None) as arm:
+                    arm()
+                    outcome["completed"] = True
+            except Exception as error:  # noqa: BLE001 - the failure mode under test
+                outcome["error"] = error
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join(timeout=10)
+        self.assertEqual(outcome.get("completed"), True, outcome.get("error"))
+
     def test_owned_subprocess_repeated_sigterm_force_kills_and_reaps_child(self):
         class RepeatedlyInterruptedProcess:
             returncode = None

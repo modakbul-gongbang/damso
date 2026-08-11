@@ -17,7 +17,7 @@ class PrivacyTests(unittest.TestCase):
         # them all through any editing session. Anchored to the root exactly as
         # .gitignore anchors it, so a stray artifact inside a source directory
         # is still a violation.
-        root_index_droppings = {".o", ".d", ".swiftdeps", ".swiftmodule"}
+        root_index_droppings = {".o", ".d", ".swiftdeps", ".swiftdeps~", ".swiftmodule"}
         violations = []
         for path in root.rglob("*"):
             relative = path.relative_to(root)

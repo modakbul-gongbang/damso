@@ -6,9 +6,9 @@ struct ProcessingOrphanSweeperTests {
     @Test
     func matchesOrphanedProcessingByParentAndModule() {
         let ps = """
-        4321 1 /usr/bin/python3 -m damso.processing --request -
-        4322 1 /usr/bin/python3 -m damso.summary --request -
-        4400 900 /usr/bin/python3 -m damso.processing --request -
+        4321 1 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
+        4322 1 /usr/bin/python3 -m damso.server.main --summary-worker -
+        4400 900 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
         5000 1 /usr/bin/python3 -m damso.index --store /x
         6000 1 /Applications/Safari.app/Contents/MacOS/Safari
         """
@@ -19,9 +19,9 @@ struct ProcessingOrphanSweeperTests {
     @Test
     func matchesOwnChildrenByParentPID() {
         let ps = """
-        7001 4242 /usr/bin/python3 -m damso.processing --request -
-        7003 7001 /usr/bin/python3 -m damso.processing --whisper-worker -
-        7002 1 /usr/bin/python3 -m damso.processing --request -
+        7001 4242 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
+        7003 7001 /usr/bin/python3 -m damso.server.main --whisper-worker -
+        7002 1 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
         """
         #expect(ProcessingOrphanSweeper.matchingPIDs(psOutput: ps, parent: 4242) == [7003, 7001])
     }
@@ -29,11 +29,11 @@ struct ProcessingOrphanSweeperTests {
     @Test
     func matchesOrphanedRootAndNestedWhisperWorkerLeafFirst() {
         let ps = """
-        7101 1 /usr/bin/python3 -m damso.processing --request -
-        7102 7101 /usr/bin/python3 -m damso.processing --whisper-worker -
+        7101 1 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
+        7102 7101 /usr/bin/python3 -m damso.server.main --whisper-worker -
         7103 7101 /opt/homebrew/bin/ffmpeg -i local-audio.caf output.wav
-        7201 9000 /usr/bin/python3 -m damso.processing --request -
-        7202 7201 /usr/bin/python3 -m damso.processing --whisper-worker -
+        7201 9000 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
+        7202 7201 /usr/bin/python3 -m damso.server.main --whisper-worker -
         """
         #expect(ProcessingOrphanSweeper.matchingPIDs(psOutput: ps, parent: 1) == [7102, 7103, 7101])
     }
@@ -41,7 +41,7 @@ struct ProcessingOrphanSweeperTests {
     @Test
     func productionSnapshotCapturesIdentityAndKeepsLeafFirstOrder() {
         let ps = """
-          7101     1 Tue Jul 21 09:02:22 2026     /usr/bin/python3 -m damso.processing --request -
+          7101     1 Tue Jul 21 09:02:22 2026     /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787
           7102  7101 Tue Jul 21 09:02:23 2026     /opt/homebrew/bin/ffmpeg -i local-audio.caf output.wav
         """
         let targets = ProcessingOrphanSweeper.matchingTargets(psOutput: ps, parent: 1)
@@ -51,7 +51,7 @@ struct ProcessingOrphanSweeperTests {
         #expect(targets[0].command == "/opt/homebrew/bin/ffmpeg -i local-audio.caf output.wav")
         #expect(targets[0].identity == "Tue Jul 21 09:02:23 2026 /opt/homebrew/bin/ffmpeg -i local-audio.caf output.wav")
         #expect(!targets[0].isRoot)
-        #expect(targets[1].identity == "Tue Jul 21 09:02:22 2026 /usr/bin/python3 -m damso.processing --request -")
+        #expect(targets[1].identity == "Tue Jul 21 09:02:22 2026 /usr/bin/python3 -m damso.server.main --store /store --host 127.0.0.1 --port 8787")
         #expect(targets[1].isRoot)
     }
 

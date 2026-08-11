@@ -39,6 +39,14 @@ protocol MeetingStoring: AnyObject {
     func recordDirectoryPath(stem: String) -> String
     func recordDirectoryURL(stem: String) -> URL
 
+    /// A location on THIS machine for purely local bookkeeping that never
+    /// becomes part of a backend request or the canonical store itself (e.g.
+    /// External Sync's checkpoint file) - locally, the canonical store root;
+    /// remotely, the local cache mirror, never the server's own
+    /// `storeRootPath` (which is a foreign filesystem path, unwritable and
+    /// often nonexistent on this Mac).
+    var localRootURL: URL { get }
+
     /// Whether this Mac holds the record's own audio files, as opposed to
     /// only the metadata mirror of a record whose audio lives on the server.
     /// A `FileManager` presence check on audio is only meaningful when this
@@ -95,6 +103,7 @@ extension MeetingStore: MeetingStoring {
     var isConfigured: Bool { FileManager.default.fileExists(atPath: rootURL.path) }
     var storeRootPath: String { rootURL.path }
     var peoplesDirectoryPath: String { CanonicalStoreLayout(root: rootURL).peoples.path }
+    var localRootURL: URL { rootURL }
 
     func recordDirectoryPath(stem: String) -> String {
         CanonicalStoreLayout(root: rootURL).recordDirectory(stem: stem).path
