@@ -298,13 +298,24 @@ async def _read_bounded(request: Request, limit: int) -> bytes:
 def _extract_archive_safely(body: bytes, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=False)
     with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as archive:
+        members = []
         for member in archive.getmembers():
             if not (member.isfile() or member.isdir()):
                 raise tarfile.TarError("archive must contain only plain files and directories")
             member_path = Path(member.name)
             if member_path.is_absolute() or ".." in member_path.parts:
                 raise tarfile.TarError("archive entry escapes the recording directory")
-        archive.extractall(destination, filter="data")
+            # macOS archivers smuggle resource-fork metadata in as AppleDouble
+            # sidecars ("._microphone.caf", ".DS_Store"). Extracted literally
+            # they masquerade as extra audio files - a real upload from the
+            # Mac client failed phase-one with "more than two audio files
+            # found" because "._microphone.caf" and "._system-audio.m4a"
+            # counted as audio. They carry nothing the store needs, so they
+            # are dropped at the door rather than special-cased downstream.
+            if member_path.name.startswith("._") or member_path.name == ".DS_Store":
+                continue
+            members.append(member)
+        archive.extractall(destination, members=members, filter="data")
 
 
 def _read_and_validate_staged_record(staging_directory: Path) -> dict[str, Any]:

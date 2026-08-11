@@ -170,8 +170,18 @@ def execute_record_operation(operation: str, request: Mapping[str, Any]) -> dict
         return {"ok": True, "operation": operation, "recording_stem": recording_directory.name}
 
     if operation == "delete-record":
-        recording_directory = existing_recording_directory(request.get("recording_directory"))
-        shutil.rmtree(recording_directory)
+        # Idempotent by contract: the desired end state is "this recording is
+        # gone", and the client's mirror can legitimately lag the server (a
+        # delete that succeeded server-side while the client's own follow-up
+        # failed leaves the client re-sending the delete for a directory that
+        # no longer exists - confirmed via a real two-machine run, where that
+        # exact sequence made a meeting undeletable: every retry failed on
+        # resolve() while the local copy kept resurrecting it in the UI).
+        # The path is still fully validated; only the existence requirement
+        # is relaxed.
+        recording_directory = deletable_recording_directory(request.get("recording_directory"))
+        if recording_directory.exists():
+            shutil.rmtree(recording_directory)
         return {"ok": True, "operation": operation}
 
     if operation == "quarantine-record":
@@ -207,6 +217,29 @@ def existing_recording_directory(raw_value: Any) -> Path:
         raise processing.ProcessingError("recording_directory is required")
     directory = Path(raw_value).expanduser().resolve(strict=True)
     if not directory.is_dir() or directory.parent.name != "recordings" or directory.parent.parent.name != "Plaud":
+        raise processing.ProcessingError("recording_directory must be a canonical Plaud/recordings record")
+    try:
+        ensure_safe_stem(directory.name)
+    except ContractError as error:
+        raise processing.ProcessingError(str(error)) from error
+    return directory
+
+
+def deletable_recording_directory(raw_value: Any) -> Path:
+    """`existing_recording_directory` minus the existence requirement, for
+    the one operation whose goal is the path's absence. Shape validation is
+    identical (canonical Plaud/recordings parent, safe stem); resolution
+    falls back to the syntactic path when the directory is already gone."""
+    if not isinstance(raw_value, str) or not raw_value:
+        raise processing.ProcessingError("recording_directory is required")
+    candidate = Path(raw_value).expanduser()
+    try:
+        directory = candidate.resolve(strict=True)
+    except OSError:
+        directory = candidate
+    if directory.exists() and not directory.is_dir():
+        raise processing.ProcessingError("recording_directory must be a canonical Plaud/recordings record")
+    if directory.parent.name != "recordings" or directory.parent.parent.name != "Plaud":
         raise processing.ProcessingError("recording_directory must be a canonical Plaud/recordings record")
     try:
         ensure_safe_stem(directory.name)

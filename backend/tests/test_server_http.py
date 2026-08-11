@@ -66,7 +66,7 @@ class LiveServer:
         return f"http://{self.config.host}:{self.config.port}"
 
 
-def make_record_archive(stem: str, *, audio: bytes = b"FAKE-AUDIO-BYTES") -> bytes:
+def make_record_archive(stem: str, *, audio: bytes = b"FAKE-AUDIO-BYTES", apple_double_debris: bool = False) -> bytes:
     record = {
         "schemaVersion": 1,
         "stem": stem,
@@ -89,6 +89,13 @@ def make_record_archive(stem: str, *, audio: bytes = b"FAKE-AUDIO-BYTES") -> byt
         info2 = tarfile.TarInfo("microphone.caf")
         info2.size = len(audio)
         tar.addfile(info2, io.BytesIO(audio))
+        if apple_double_debris:
+            # What macOS archivers actually smuggle in: AppleDouble
+            # resource-fork sidecars and Finder metadata.
+            for name in ("._meeting.json", "._microphone.caf", "._system-audio.m4a", ".DS_Store"):
+                debris = tarfile.TarInfo(name)
+                debris.size = 4
+                tar.addfile(debris, io.BytesIO(b"junk"))
     buf.seek(0)
     return buf.read()
 
@@ -144,6 +151,114 @@ class LoopbackTests(unittest.TestCase):
                 audio = httpx.get(f"{live.base_url}/v1/recordings/flow-1/files/microphone.caf", timeout=5)
                 self.assertEqual(audio.status_code, 200)
                 self.assertEqual(audio.content, b"FAKE-AUDIO-BYTES")
+
+    def test_every_operation_survives_being_run_a_second_time(self):
+        """The retry/idempotency lifecycle, end to end against a real server:
+        every client-visible operation runs TWICE. The SSH era had no retries
+        (one-shot CLI runs on one machine), so the HTTP migration's re-run
+        edges each shipped untested and each failed in production the first
+        time a real user pressed a button again - requeue-after-success,
+        delete-after-delete, and re-upload-after-delete were all found this
+        way. This test is the standing guard for that whole class."""
+        with store_and_config() as config:
+            with LiveServer(config) as live:
+                stem = "lifecycle-1"
+                directory = config.store_root / "Plaud" / "recordings" / stem
+                archive = make_record_archive(stem)
+
+                def wait_for(state: str) -> dict:
+                    deadline = time.time() + 5
+                    status = {}
+                    while time.time() < deadline:
+                        status = httpx.get(f"{live.base_url}/v1/recordings/{stem}/status", timeout=5).json()
+                        if status.get("state") == state:
+                            return status
+                        time.sleep(0.1)
+                    raise AssertionError(f"never reached {state}: {status}")
+
+                # Upload, process.
+                self.assertEqual(httpx.post(f"{live.base_url}/v1/recordings", content=archive, timeout=10).status_code, 201)
+                wait_for("done")
+                # Re-upload of a live recording stays refused (it would
+                # clobber committed artifacts), and refusal changes nothing.
+                self.assertEqual(httpx.post(f"{live.base_url}/v1/recordings", content=archive, timeout=10).status_code, 409)
+                self.assertTrue((directory / "meeting.json").is_file())
+
+                # Reprocess after success (requeue with no failed job).
+                self.assertEqual(httpx.post(f"{live.base_url}/v1/recordings/{stem}/requeue", timeout=5).status_code, 200)
+                wait_for("done")
+
+                # Summary, then summary again.
+                for _ in range(2):
+                    self.assertEqual(
+                        httpx.post(f"{live.base_url}/v1/recordings/{stem}/summary", json={"agent": "claude", "language": "ko"}, timeout=5).status_code,
+                        200,
+                    )
+                    wait_for("done")
+
+                # Delete, then delete again.
+                for _ in range(2):
+                    response = httpx.post(
+                        f"{live.base_url}/v1/rpc",
+                        headers={"X-Damso-Protocol-Version": "1"},
+                        json={"operation": "delete-record", "recording_directory": str(directory)},
+                        timeout=5,
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(response.json().get("ok"), response.json())
+                self.assertFalse(directory.exists())
+
+                # Re-upload after delete starts a fresh lifecycle.
+                self.assertEqual(httpx.post(f"{live.base_url}/v1/recordings", content=archive, timeout=10).status_code, 201)
+                wait_for("done")
+                self.assertTrue((directory / "meeting.json").is_file())
+
+    def test_audio_detection_ignores_the_combined_mix_and_hidden_files(self):
+        """`combined-audio.m4a` is phase-one's own output, not a source track,
+        and AppleDouble sidecars are metadata - counting either made a normal
+        two-track recording fail with "more than two audio files found"
+        (confirmed twice via real runs: once on first upload with `._` debris,
+        once on retry after a successful run had written the combined mix)."""
+        from damso.server.queue import _detect_audio_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recording = Path(tmp)
+            (recording / "microphone.caf").write_bytes(b"mic")
+            (recording / "system-audio.m4a").write_bytes(b"system")
+            (recording / "combined-audio.m4a").write_bytes(b"mix")
+            (recording / "._microphone.caf").write_bytes(b"junk")
+
+            audio, system_audio = _detect_audio_files(recording)
+
+            self.assertEqual(audio.name, "microphone.caf")
+            self.assertEqual(system_audio.name, "system-audio.m4a")
+
+    def test_upload_with_appledouble_debris_still_processes_and_strips_it(self):
+        """macOS archivers add resource-fork sidecars ("._microphone.caf") and
+        Finder metadata to the tar; extracted literally they masquerade as
+        extra audio files - a real upload from the Mac client failed phase-one
+        with "more than two audio files found" for a normal two-track
+        recording. The server must drop them at extraction."""
+        with store_and_config() as config:
+            with LiveServer(config) as live:
+                archive = make_record_archive("debris-1", apple_double_debris=True)
+                response = httpx.post(f"{live.base_url}/v1/recordings", content=archive, timeout=10)
+                self.assertEqual(response.status_code, 201)
+
+                deadline = time.time() + 5
+                status = {}
+                while time.time() < deadline:
+                    status = httpx.get(f"{live.base_url}/v1/recordings/debris-1/status", timeout=5).json()
+                    if status.get("state") in {"done", "failed"}:
+                        break
+                    time.sleep(0.1)
+                self.assertEqual(status.get("state"), "done", status)
+
+                committed = config.store_root / "Plaud" / "recordings" / "debris-1"
+                names = {entry.name for entry in committed.iterdir()}
+                self.assertNotIn("._microphone.caf", names)
+                self.assertNotIn(".DS_Store", names)
+                self.assertIn("microphone.caf", names)
 
     def test_incomplete_upload_never_commits_a_partial_recording(self):
         with store_and_config() as config:

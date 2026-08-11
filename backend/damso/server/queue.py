@@ -244,7 +244,20 @@ def _detect_audio_files(recording_directory: Path) -> tuple[Path, Path | None]:
     candidates = sorted(
         entry
         for entry in recording_directory.iterdir()
-        if entry.is_file() and not entry.is_symlink() and entry.suffix.lower() in AUDIO_EXTENSIONS
+        # Hidden entries are never recording audio - in particular macOS
+        # AppleDouble sidecars ("._microphone.caf") in records committed
+        # before upload started stripping them made this count "more than
+        # two audio files" for a perfectly normal two-track recording.
+        # The combined playback mix is phase-one's own *output*, so counting
+        # it as a source made every re-run of an already-processed two-track
+        # recording fail the same way (confirmed via a real retry: the first
+        # run succeeded and wrote combined-audio.m4a, and the retry then
+        # found "three" audio files).
+        if entry.is_file()
+        and not entry.is_symlink()
+        and not entry.name.startswith(".")
+        and entry.name != processing.COMBINED_AUDIO_FILENAME
+        and entry.suffix.lower() in AUDIO_EXTENSIONS
     )
     if not candidates:
         raise QueueError("no audio file found in the recording directory")

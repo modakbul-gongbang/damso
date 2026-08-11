@@ -192,6 +192,34 @@ class RecordOperationTests(unittest.TestCase):
             self.assertEqual(response["ok"], True)
             self.assertFalse(record.exists())
 
+    def test_delete_record_is_idempotent_for_an_already_deleted_directory(self):
+        """The client's mirror can lag the server: a delete that succeeded
+        server-side while the client's own follow-up failed leaves the client
+        re-sending the delete for a directory that no longer exists. That
+        retry must succeed - a real two-machine run showed the error branch
+        made the meeting permanently undeletable, since the stale local copy
+        kept resurfacing it while every retry failed on resolve()."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record = make_bare_record(root)
+            store = Store.at(root)
+
+            first = dispatch(store, record_request("delete-record", recording_directory=str(record)))
+            self.assertEqual(first["ok"], True)
+            second = dispatch(store, record_request("delete-record", recording_directory=str(record)))
+            self.assertEqual(second["ok"], True)
+
+    def test_delete_record_still_rejects_a_malformed_path_even_when_absent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store.at(root)
+
+            outside = dispatch(store, record_request("delete-record", recording_directory=str(root / "elsewhere" / "fixture")))
+            self.assertEqual(outside["ok"], False)
+
+            traversal = dispatch(store, record_request("delete-record", recording_directory=str(root / "Plaud" / "recordings" / "..")))
+            self.assertEqual(traversal["ok"], False)
+
     def test_quarantine_record_moves_the_directory_and_writes_the_reason(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
