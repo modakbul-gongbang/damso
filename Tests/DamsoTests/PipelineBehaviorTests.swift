@@ -15,8 +15,13 @@ private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
     var rebuildCount = 0
     var noteShouldFail = false
 
+    var applyResolutionsRequests: [LocalResolutionProcessingRequest] = []
+
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult {
-        LocalProcessingResult(ok: true, stage: "ready_for_summary", speakerCount: request.resolutions.count)
+        lock.lock()
+        defer { lock.unlock() }
+        applyResolutionsRequests.append(request)
+        return LocalProcessingResult(ok: true, stage: "ready_for_summary", speakerCount: request.resolutions.count)
     }
 
     var reclusterRequests: [LocalReclusterRequest] = []
@@ -347,6 +352,116 @@ func reclusterReplaysTheProcessingAudioAndRefusesOnceConfirmationStarted() async
     controller.select(stem: record.stem)
     await controller.reclusterSpeakers(count: 3)
     #expect(backend.reclusterRequests.count == 1)
+}
+
+/// A retry after an earlier, unrelated failure used to carry that failure's
+/// `.failed` state forward even once the retry itself succeeded - `select`
+/// only clears `state` on a stem switch, never on repeating the same
+/// action against the still-selected meeting (confirmed: a user pressing
+/// "Re-split speakers" a second time on the same meeting kept seeing the
+/// "Recording needs attention" banner from the first, unrelated failure
+/// even after the second attempt actually worked). `reclusterSpeakers` now
+/// clears a stale `.failed` state itself at the start of every attempt.
+@Test @MainActor
+func reclusterClearsAStaleFailedStateBeforeARetryEvenWhenTheRetrySucceeds() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    // No audio file at all yet - this attempt fails and leaves `state`
+    // stuck at `.failed`.
+    await controller.reclusterSpeakers(count: 2)
+    #expect(controller.state == .failed("recluster_audio_unavailable"))
+    #expect(backend.reclusterRequests.isEmpty)
+
+    // Provide the audio and retry on the very same, still-selected meeting.
+    var record = try store.load(stem: "pipeline-fixture")
+    record.originalAudioFile = "microphone.caf"
+    try store.update(record)
+    let directory = CanonicalStoreLayout(root: root).recordDirectory(stem: record.stem)
+    try Data("synthetic".utf8).write(to: directory.appendingPathComponent("microphone.caf"))
+    controller.refreshLibrary()
+    controller.select(stem: record.stem)
+
+    await controller.reclusterSpeakers(count: 2)
+
+    #expect(backend.reclusterRequests.count == 1)
+    #expect(controller.state != .failed("recluster_audio_unavailable"))
+}
+
+/// `guardRemoteWrite` itself now sets a `.failed` state consistent with the
+/// message it leaves in `recoveryAction`, instead of leaving `state`
+/// untouched - the fix landed once in the shared guard rather than at each
+/// call site individually, after a per-call-site fix on `reclusterSpeakers`
+/// alone left the identical bug reachable through `applyResolution` (a
+/// speaker-confirmation click while disconnected looked like it silently
+/// did nothing, same shape as the recluster button before its own fix).
+/// `.failed` is the only state whose detail text actually reads
+/// `recoveryAction` (see `statusDetail`), so any other state left in place
+/// on a block renders no visible feedback at all.
+@Test @MainActor
+func reclusterBlockedByTheRemoteWriteGuardSetsAConsistentFailedState() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cache = MeetingStore(root: root.appendingPathComponent("cache", isDirectory: true), minimumFreeBytes: 0)
+    var record = try cache.createRecord(MeetingDraft(stem: "meeting-a", source: .local, title: "meeting-a"))
+    record.stage = .speakerReview
+    record.originalAudioFile = "microphone.caf"
+    try cache.commit(record)
+    try cache.update(record)
+    controller.refreshLibrary()
+    controller.select(stem: "meeting-a")
+
+    await controller.reclusterSpeakers(count: 2)
+
+    #expect(controller.state == .failed("blocked_remote"))
+    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
+    #expect(backend.reclusterRequests.isEmpty)
+}
+
+/// Same guard, different call site: a speaker-confirmation click while
+/// disconnected must be just as visible as a blocked recluster - this is
+/// the exact scenario reported live (clicking a person candidate while the
+/// Mac mini connection was stale produced no visible reaction).
+@Test @MainActor
+func applyResolutionBlockedByTheRemoteWriteGuardSetsAConsistentFailedState() async throws {
+    let backend = FakeBackend()
+    let (controller, root) = makeClientWorkspace(status: .disconnected, backend: backend)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cache = MeetingStore(root: root.appendingPathComponent("cache", isDirectory: true), minimumFreeBytes: 0)
+    var record = try cache.createRecord(MeetingDraft(stem: "meeting-a", source: .local, title: "meeting-a"))
+    record.stage = .speakerReview
+    try cache.commit(record)
+    try cache.update(record)
+    controller.refreshLibrary()
+    controller.select(stem: "meeting-a")
+
+    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "이호연")
+
+    #expect(controller.state == .failed("blocked_remote"))
+    #expect(controller.recoveryAction == Loc.tr("Available once connected to the Mac mini."))
+    #expect(backend.applyResolutionsRequests.isEmpty)
+}
+
+/// A retry that reaches `applyResolution` again on the same meeting after
+/// an earlier, unrelated failure must not carry that failure's `.failed`
+/// state forward once the retry succeeds - mirrors the identical recluster
+/// regression above, for the other call site the live incident actually hit.
+@Test @MainActor
+func applyResolutionClearsAStaleFailedStateBeforeARetryEvenWhenTheRetrySucceeds() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    // No audio file at all yet - fails and leaves `state` stuck at `.failed`.
+    await controller.reclusterSpeakers(count: 2)
+    #expect(controller.state == .failed("recluster_audio_unavailable"))
+
+    await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "이호연")
+
+    #expect(backend.applyResolutionsRequests.count == 1)
+    #expect(controller.state != .failed("recluster_audio_unavailable"))
+    let updated = try store.load(stem: "pipeline-fixture")
+    #expect(updated.resolutions.contains { $0.speaker == "SPEAKER_00" && $0.personName == "이호연" })
 }
 
 @Test @MainActor

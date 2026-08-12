@@ -178,8 +178,15 @@ enum LocalProcessingProcessRunner {
         try run(request, client: client)
     }
 
+    /// A first re-split of an older meeting re-runs diarization over the
+    /// whole recording server-side and can legitimately take a few minutes
+    /// (the recluster banner's own copy warns the user of this); every other
+    /// operation here is plain local file I/O and stays on `run`'s fast
+    /// default.
+    static let reclusterTimeout: TimeInterval = 600
+
     static func recluster(_ request: LocalReclusterRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
-        try run(request, client: client)
+        try run(request, client: client, timeout: reclusterTimeout)
     }
 
     static func appendPersonNote(_ request: LocalPersonNoteRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
@@ -198,10 +205,10 @@ enum LocalProcessingProcessRunner {
         try run(request, client: client)
     }
 
-    private static func run<Request: Encodable>(_ request: Request, client: DamsoHTTPClient) throws -> LocalProcessingResult {
+    private static func run<Request: Encodable>(_ request: Request, client: DamsoHTTPClient, timeout: TimeInterval = DamsoHTTPClient.defaultTimeout) throws -> LocalProcessingResult {
         let data: Data
         do {
-            data = try client.send(request)
+            data = try client.send(request, timeout: timeout)
         } catch {
             throw translate(error)
         }

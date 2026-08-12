@@ -159,6 +159,29 @@ struct DesignReviewWindow: View {
         }
     }
 
+    /// The detail view already shows each in-flight action inline (the
+    /// recluster button reading "Re-splitting...", the speaker-suggestions
+    /// spinner, ...), but the meeting log row for that same meeting kept
+    /// showing its static stage pill the whole time - a user watching only
+    /// the sidebar saw no sign anything was happening. Overrides that row's
+    /// pill with whichever transient activity is running against it.
+    ///
+    /// Each in-flight flag targets whichever meeting was selected when the
+    /// async call *started*, not whichever is selected now - these actions
+    /// keep running in the background after the user clicks a different
+    /// row. Keying this off `stem` instead of "is this the selected row"
+    /// keeps the pill on the meeting actually doing the work: switching
+    /// selection while a recluster is still running no longer paints the
+    /// newly-selected row as "Re-splitting..." (nor drops the pill off the
+    /// meeting that is genuinely still running it).
+    private func currentActivityPill(for stem: String) -> (title: String, tone: StatusPill.Tone)? {
+        if workspace.isReclustering, workspace.reclusteringStem == stem { return (Loc.tr("Re-splitting..."), .active) }
+        if workspace.isApplyingSpeakerResolution, workspace.applyingSpeakerResolutionStem == stem { return (Loc.tr("Confirming speaker..."), .active) }
+        if workspace.isSuggestingSpeakers, workspace.suggestingSpeakersStem == stem { return (Loc.tr("AI is reading the transcript..."), .active) }
+        if workspace.isRequestingSummary, workspace.requestingSummaryStem == stem { return (Loc.tr("Creating summary..."), .active) }
+        return nil
+    }
+
     private var deleteConfirmationTitle: String {
         guard let record = pendingDelete else { return Loc.tr("Delete meeting") }
         return String(format: Loc.tr("Delete “%@”?"), meetingDisplayTitle(record))
@@ -175,7 +198,7 @@ struct DesignReviewWindow: View {
     /// tap that can actually start: a transcript to summarize, and no summary
     /// request already in flight.
     private func canRerunSummary(_ record: MeetingRecord) -> Bool {
-        !workspace.processingArtifacts.transcript.isEmpty && !workspace.isRequestingSummary && workspace.state != .processing && !workspace.isRecording
+        !workspace.processingArtifacts.transcript.isEmpty && !workspace.isRequestingSummaryForSelectedRecord && workspace.state != .processing && !workspace.isRecording
     }
 
     // MARK: Sidebar
@@ -347,7 +370,8 @@ struct DesignReviewWindow: View {
                 MeetingRow(
                     record: record,
                     selected: isSelected,
-                    duplicateSuspect: workspace.duplicateStems.contains(record.stem)
+                    duplicateSuspect: workspace.duplicateStems.contains(record.stem),
+                    activityOverride: currentActivityPill(for: record.stem)
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -1199,11 +1223,11 @@ struct DesignReviewWindow: View {
                             .opacity(0.75)
                     }
                     Spacer()
-                    Button(workspace.isRequestingSummary ? Loc.tr("Retrying...") : Loc.tr("Retry summary")) {
+                    Button(workspace.isRequestingSummaryForSelectedRecord ? Loc.tr("Retrying...") : Loc.tr("Retry summary")) {
                         Task { await workspace.runSummary() }
                     }
                     .buttonStyle(DamsoPillButtonStyle())
-                    .disabled(workspace.isRequestingSummary)
+                    .disabled(workspace.isRequestingSummaryForSelectedRecord)
                 }
             }
         case .complete:
@@ -1418,7 +1442,7 @@ struct DesignReviewWindow: View {
                         .font(.damsoMonoCaption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if workspace.isSuggestingSpeakers {
+                    if workspace.isSuggestingSpeakersForSelectedRecord {
                         ProgressView()
                             .controlSize(.small)
                         Text(Loc.tr("AI is reading the transcript for suggestions..."))
@@ -1456,15 +1480,15 @@ struct DesignReviewWindow: View {
                         Task { await workspace.reclusterSpeakers(count: reclusterCount) }
                     } label: {
                         HStack(spacing: 6) {
-                            if workspace.isReclustering {
+                            if workspace.isReclusteringSelectedRecord {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(workspace.isReclustering ? Loc.tr("Re-splitting...") : Loc.tr("Re-split speakers"))
+                            Text(workspace.isReclusteringSelectedRecord ? Loc.tr("Re-splitting...") : Loc.tr("Re-split speakers"))
                         }
                     }
                     .buttonStyle(DamsoPillButtonStyle())
-                    .disabled(reclusterCount < 1 || workspace.isReclustering)
+                    .disabled(reclusterCount < 1 || workspace.isReclusteringSelectedRecord)
                     .accessibilityIdentifier("damso.recluster-speakers")
                 }
             }
@@ -1511,14 +1535,14 @@ struct DesignReviewWindow: View {
                 Task { await workspace.runSummary() }
             } label: {
                 HStack(spacing: 8) {
-                    if workspace.isRequestingSummary {
+                    if workspace.isRequestingSummaryForSelectedRecord {
                         ProgressView()
                             .controlSize(.small)
                             .tint(DamsoTokens.canvas)
                     } else {
                         Image(systemName: "sparkles")
                     }
-                    Text(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Generate summary"))
+                    Text(workspace.isRequestingSummaryForSelectedRecord ? Loc.tr("Creating summary...") : Loc.tr("Generate summary"))
                         .fontWeight(.semibold)
                 }
                 .padding(.horizontal, 18)
@@ -1528,7 +1552,7 @@ struct DesignReviewWindow: View {
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
             }
             .buttonStyle(.plain)
-            .disabled(workspace.isRequestingSummary)
+            .disabled(workspace.isRequestingSummaryForSelectedRecord)
             .padding(20)
             .help(Loc.tr("Sends the transcript to the selected agent to create the summary and title."))
             .accessibilityIdentifier("damso.floating-generate-summary")
@@ -1626,7 +1650,7 @@ struct DesignReviewWindow: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(isChosen ? DamsoTokens.success : nil)
-                        .disabled(workspace.isApplyingSpeakerResolution)
+                        .disabled(workspace.isApplyingSpeakerResolutionToSelectedRecord)
                         .accessibilityAddTraits(isChosen ? .isSelected : [])
                     }
                 }
@@ -1678,7 +1702,7 @@ struct DesignReviewWindow: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(isChosen ? DamsoTokens.success : (isSuggested ? DamsoTokens.accent : nil))
-                        .disabled(workspace.isApplyingSpeakerResolution)
+                        .disabled(workspace.isApplyingSpeakerResolutionToSelectedRecord)
                         .accessibilityAddTraits(isChosen ? .isSelected : [])
                     }
                     Text(Loc.tr("Captured from the live meeting. Confirming saves this display name as a profile alias."))
@@ -1718,7 +1742,7 @@ struct DesignReviewWindow: View {
                             }
                             .buttonStyle(.bordered)
                             .tint(isChosen ? DamsoTokens.success : nil)
-                            .disabled(workspace.isApplyingSpeakerResolution)
+                            .disabled(workspace.isApplyingSpeakerResolutionToSelectedRecord)
                             .accessibilityAddTraits(isChosen ? .isSelected : [])
                             Text(suggestion.reason)
                                 .font(.caption)
@@ -1737,7 +1761,7 @@ struct DesignReviewWindow: View {
                 }
             }
             .buttonStyle(.bordered)
-            .disabled(workspace.isApplyingSpeakerResolution)
+            .disabled(workspace.isApplyingSpeakerResolutionToSelectedRecord)
         }
         .padding(16)
         .background(DamsoTokens.surfaceSoft, in: RoundedRectangle(cornerRadius: DamsoTokens.radius))
@@ -1820,11 +1844,11 @@ struct DesignReviewWindow: View {
                     }
                     Divider().overlay(DamsoTokens.hairline)
                     HStack(spacing: 8) {
-                        Button(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Regenerate summary"), systemImage: "arrow.clockwise") {
+                        Button(workspace.isRequestingSummaryForSelectedRecord ? Loc.tr("Creating summary...") : Loc.tr("Regenerate summary"), systemImage: "arrow.clockwise") {
                             Task { await workspace.runSummary() }
                         }
                         .buttonStyle(DamsoPillButtonStyle())
-                        .disabled(workspace.isRequestingSummary || workspace.isApplyingSpeakerResolution || workspace.isRecording)
+                        .disabled(workspace.isRequestingSummaryForSelectedRecord || workspace.isApplyingSpeakerResolutionToSelectedRecord || workspace.isRecording)
                         .help(Loc.tr("Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them."))
                         .accessibilityIdentifier("damso.regenerate-summary")
                         Text(Loc.tr("Confirm speaker names first to have them appear in the summary."))
@@ -1866,11 +1890,11 @@ struct DesignReviewWindow: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(Loc.tr("No summary was saved for this meeting yet."))
                         .foregroundStyle(.secondary)
-                    Button(workspace.isRequestingSummary ? Loc.tr("Creating summary...") : Loc.tr("Retry summary"), systemImage: "sparkles") {
+                    Button(workspace.isRequestingSummaryForSelectedRecord ? Loc.tr("Creating summary...") : Loc.tr("Retry summary"), systemImage: "sparkles") {
                         Task { await workspace.runSummary() }
                     }
                     .buttonStyle(DamsoPillButtonStyle())
-                    .disabled(workspace.isRequestingSummary || workspace.isApplyingSpeakerResolution || workspace.isRecording || workspace.processingArtifacts.transcript.isEmpty)
+                    .disabled(workspace.isRequestingSummaryForSelectedRecord || workspace.isApplyingSpeakerResolutionToSelectedRecord || workspace.isRecording || workspace.processingArtifacts.transcript.isEmpty)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -2953,6 +2977,14 @@ private struct MeetingRow: View {
     let record: MeetingRecord
     let selected: Bool
     let duplicateSuspect: Bool
+    /// A transient action running on this exact record (recluster, speaker
+    /// confirmation, ...) takes over the pill in place of the static stage,
+    /// so the sidebar and the detail view never disagree about what's
+    /// happening right now.
+    var activityOverride: (title: String, tone: StatusPill.Tone)? = nil
+
+    private var pillTitle: String { activityOverride?.title ?? record.pillTitle }
+    private var pillTone: StatusPill.Tone { activityOverride?.tone ?? record.pillTone }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -2962,16 +2994,16 @@ private struct MeetingRow: View {
             // source now lives in the meta line instead.)
             ZStack {
                 Circle()
-                    .fill(record.pillTone.color.opacity(0.18))
+                    .fill(pillTone.color.opacity(0.18))
                     .frame(width: 16, height: 16)
                 Image(systemName: "circle.fill")
                     .font(.system(size: 7))
-                    .foregroundStyle(record.pillTone.color)
-                    .symbolEffect(.pulse, options: .repeating, isActive: record.pillTone.isAnimated)
+                    .foregroundStyle(pillTone.color)
+                    .symbolEffect(.pulse, options: .repeating, isActive: pillTone.isAnimated)
             }
             .frame(width: 20)
             .padding(.top, 3)
-            .accessibilityLabel(record.pillTitle)
+            .accessibilityLabel(pillTitle)
             VStack(alignment: .leading, spacing: 4) {
                 Text(meetingDisplayTitle(record))
                     .font(.headline)
@@ -2984,10 +3016,10 @@ private struct MeetingRow: View {
                 // pure noise, while in-progress and needs-attention states
                 // still earn their pill. The source chip folded into the
                 // date line for the same reason.
-                if record.pillTone != .complete || duplicateSuspect {
+                if pillTone != .complete || duplicateSuspect {
                     HStack(spacing: 6) {
-                        if record.pillTone != .complete {
-                            StatusPill(title: record.pillTitle, tone: record.pillTone)
+                        if pillTone != .complete {
+                            StatusPill(title: pillTitle, tone: pillTone)
                         }
                         if duplicateSuspect {
                             BlockChip(title: Loc.tr("Duplicate?"), block: DamsoTokens.blockCream)

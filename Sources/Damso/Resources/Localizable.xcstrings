@@ -305,6 +305,22 @@
         }
       }
     },
+    "AI is reading the transcript...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI is reading the transcript..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI가 전사를 읽는 중..."
+          }
+        }
+      }
+    },
     "AI is reading the transcript for suggestions...": {
       "localizations": {
         "en": {
@@ -7021,6 +7037,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "다시 나눈 화자 결과를 불러오지 못했습니다. 이 미팅을 다시 열어주세요."
+          }
+        }
+      }
+    },
+    "The recording audio is not available on this Mac yet. Play the recording once to fetch it, then retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording audio is not available on this Mac yet. Play the recording once to fetch it, then retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 아직 녹음 오디오가 없습니다. 재생을 한 번 눌러 오디오를 받아온 뒤 다시 시도하세요."
           }
         }
       }

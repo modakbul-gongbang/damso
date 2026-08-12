@@ -113,10 +113,35 @@ final class MeetingWorkspaceController: ObservableObject {
     @Published private(set) var selectedRecord: MeetingRecord?
     @Published private(set) var processingArtifacts = MeetingProcessingArtifacts.empty
     @Published private(set) var isApplyingSpeakerResolution = false
+    /// Stem the in-flight `applyResolution` call actually targets. The bool
+    /// alone is not enough to place the "Confirming speaker..." row pill:
+    /// the operation always runs against whatever was selected when it
+    /// started, which may no longer be the row the user has since clicked
+    /// into, so the pill must follow this stem, not `selectedRecord`.
+    @Published private(set) var applyingSpeakerResolutionStem: String?
     @Published private(set) var isReclustering = false
+    /// See `applyingSpeakerResolutionStem` - same reasoning for recluster.
+    @Published private(set) var reclusteringStem: String?
     @Published private(set) var isRequestingSummary = false
+    /// See `applyingSpeakerResolutionStem` - same reasoning for the summary request.
+    @Published private(set) var requestingSummaryStem: String?
     @Published private(set) var speakerSuggestions: [String: [SpeakerSuggestion]] = [:]
     @Published private(set) var isSuggestingSpeakers = false
+    /// See `applyingSpeakerResolutionStem` - same reasoning for speaker suggestions.
+    @Published private(set) var suggestingSpeakersStem: String?
+    /// The detail view only ever renders `selectedRecord`, so every
+    /// spinner/disabled-state binding in it needs "is this action running
+    /// for the meeting on screen right now", not the bare `is...` flag -
+    /// that flag stays true for whichever meeting the call actually started
+    /// against even after the user has since selected a different one
+    /// (confirmed via a real run: switching away from a meeting mid-recluster
+    /// showed the *newly selected, uninvolved* meeting's own recluster button
+    /// stuck on "Re-splitting..." and disabled, while the meeting genuinely
+    /// running it showed nothing in the detail view at all).
+    var isReclusteringSelectedRecord: Bool { isReclustering && reclusteringStem == selectedRecord?.stem }
+    var isApplyingSpeakerResolutionToSelectedRecord: Bool { isApplyingSpeakerResolution && applyingSpeakerResolutionStem == selectedRecord?.stem }
+    var isSuggestingSpeakersForSelectedRecord: Bool { isSuggestingSpeakers && suggestingSpeakersStem == selectedRecord?.stem }
+    var isRequestingSummaryForSelectedRecord: Bool { isRequestingSummary && requestingSummaryStem == selectedRecord?.stem }
     /// R9(b): nil on a local/combined store, where the whole notion of
     /// "connected to the mini" does not apply and the UI should show nothing.
     /// Polled from `RemoteConnectivityTracker` rather than pushed, since that
@@ -244,6 +269,18 @@ final class MeetingWorkspaceController: ObservableObject {
         guard let remote = store as? RemoteMeetingStore else { return }
         connectionStatus = connectivityTracker.status
         outboxPendingCount = remote.outboxPendingCount()
+        // A "disconnected"/"version mismatch" verdict never self-corrects on
+        // its own - see `probeReachability`'s doc comment. Only worth the
+        // extra request while we already believe something is wrong; the
+        // common "connected" case stays exactly as cheap as before (a plain
+        // lock-guarded enum read, per R9b).
+        guard connectionStatus != .connected else { return }
+        Task { [weak self, remote] in
+            guard await remote.probeReachability() else { return }
+            guard let self else { return }
+            self.connectivityTracker.noteSuccess()
+            self.connectionStatus = self.connectivityTracker.status
+        }
     }
 
     /// D-13: on launch, any record still sitting in `.queued`/`.transcribing`/
@@ -379,9 +416,19 @@ final class MeetingWorkspaceController: ObservableObject {
     /// avoid refreshLibrary re-triggering itself.
     private func performRemoteMaintenanceIfNeeded() {
         guard let remote = store as? RemoteMeetingStore else { return }
+        // The active recording's outbox directory is a live write target -
+        // its audio files are still growing and the m4a is unfinalized (no
+        // moov atom yet). The sweep once handed one off mid-recording
+        // (confirmed via a real meeting: a 20-minute recording reached the
+        // server as a 20-second truncated snapshot uploaded by the periodic
+        // sweep one minute in; the server then committed and processed the
+        // fragment, and the real post-stop upload was refused as a
+        // duplicate). The stop path's own handoff covers it the moment
+        // capture actually finishes.
+        let activeStem = (isRecording || isCaptureStartPending) ? activeRecord?.stem : nil
         Task { @MainActor in
             await remote.syncCache()
-            await remote.retryPendingOutboxWork()
+            await remote.retryPendingOutboxWork(excludingStems: activeStem.map { [$0] } ?? [])
             self.refreshConnectionStatus()
         }
     }
@@ -393,11 +440,31 @@ final class MeetingWorkspaceController: ObservableObject {
     /// just lets the attempt run and fail on its own (AC8's path); this can
     /// never make an attempt succeed that a live check would have blocked.
     /// Always true on a local/combined store, where none of this applies.
+    ///
+    /// Every one of this guard's ~10 call sites used to leave `state`
+    /// untouched on a block, setting only `recoveryAction` - but `.failed`
+    /// is the only state whose detail text actually reads `recoveryAction`
+    /// (see `statusDetail`), so a block against any other state rendered no
+    /// visible feedback at all: the button looked like it silently did
+    /// nothing, and if a stale `.failed` title from an unrelated earlier
+    /// failure happened to already be showing, its message got quietly
+    /// swapped out from under it. Recluster's own call site hit this first
+    /// and got a local fix; the same shape then reproduced on a plain
+    /// speaker-confirmation click while genuinely disconnected, which is the
+    /// class of repeat mistake a shared fix here is meant to close off
+    /// instead of chasing one call site at a time. `.recording`/`.processing`
+    /// are the only states this must never stomp (`select(_:)` carries the
+    /// same exception) - every other call site here is a user-initiated
+    /// write attempt on a screen where neither is genuinely in progress.
     private func guardRemoteWrite() -> Bool {
         guard store is RemoteMeetingStore, let connectionStatus, connectionStatus != .connected else { return true }
         recoveryAction = connectionStatus == .versionMismatch
             ? Loc.tr("The Mac mini needs a Damso update before this can run.")
             : Loc.tr("Available once connected to the Mac mini.")
+        switch state {
+        case .recording, .processing: break
+        default: state = .failed("blocked_remote")
+        }
         return false
     }
 
@@ -407,6 +474,11 @@ final class MeetingWorkspaceController: ObservableObject {
     }
 
     func applyResolution(speaker: String, action: SpeakerResolutionAction, personName: String? = nil, alias: String? = nil) async {
+        // See reclusterSpeakers()'s identical preamble: a retry on the same
+        // meeting must not inherit a stale `.failed` state left behind by an
+        // earlier, unrelated failure.
+        if case .failed = state { state = .ready }
+        recoveryAction = nil
         guard guardRemoteWrite() else { return }
         guard var record = selectedRecord else { return }
         let cleanedName = personName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -428,6 +500,7 @@ final class MeetingWorkspaceController: ObservableObject {
             })
         )
         isApplyingSpeakerResolution = true
+        applyingSpeakerResolutionStem = record.stem
         let result = await Task.detached(priority: .utility) { [backend] in
             Result { try backend.applyResolutions(request) }
         }.value
@@ -504,6 +577,7 @@ final class MeetingWorkspaceController: ObservableObject {
         }
 
         isRequestingSummary = true
+        requestingSummaryStem = record.stem
         state = .processing
         do {
             try await remote.triggerSummary(
@@ -577,6 +651,15 @@ final class MeetingWorkspaceController: ObservableObject {
                 }
                 switch status.state {
                 case "done":
+                    // The server publishes queue completion before this
+                    // Mac's incremental cache necessarily contains the new
+                    // artifact. Pull completion-owned files explicitly; if
+                    // that download is briefly unavailable, keep polling
+                    // instead of persisting a false artifact failure.
+                    guard await remote.prepareCompletedArtifacts(stem: stem, kind: status.kind) else {
+                        try? await Task.sleep(for: .seconds(intervalSeconds))
+                        continue
+                    }
                     self.handleProcessingCompleted(stem: stem, kind: status.kind)
                     return
                 case "failed":
@@ -863,6 +946,7 @@ final class MeetingWorkspaceController: ObservableObject {
     func requestSpeakerSuggestions(quiet: Bool = false) async {
         guard let record = selectedRecord, !isSuggestingSpeakers else { return }
         isSuggestingSpeakers = true
+        suggestingSpeakersStem = record.stem
         let request = LocalSpeakerHintsRequest(
             recordingDirectory: store.recordDirectoryPath(stem: record.stem),
             agent: AgentPreferences.summaryAgent(),
@@ -1172,18 +1256,59 @@ final class MeetingWorkspaceController: ObservableObject {
     /// re-split - the entry point disappears once naming starts, because new
     /// labels would orphan every existing confirmation.
     func reclusterSpeakers(count: Int) async {
+        // A retry on the same meeting used to inherit whatever `state`/
+        // `recoveryAction` a previous, unrelated failure had left behind -
+        // `select(_:)` only clears them on an actual stem switch, never on
+        // a repeat click here. That produced a banner mixing a stale title
+        // ("Recording needs attention" from an old failure) with a fresh
+        // subtitle, and made a `guardRemoteWrite()` block below look like
+        // the button silently did nothing. Every fresh attempt now starts
+        // from a clean slate instead.
+        if case .failed = state { state = .ready }
+        recoveryAction = nil
+        // guardRemoteWrite() itself now sets a visible `.failed` state on a
+        // block (see its own doc comment) - no need to duplicate that here.
         guard guardRemoteWrite() else { return }
         guard count >= 1, !isReclustering,
               var record = selectedRecord,
               record.stage == .speakerReview,
-              record.resolutions.isEmpty,
-              let audioURL = sourceAudioURL(for: record) else { return }
+              record.resolutions.isEmpty else { return }
+        // Recluster needs the actual audio bytes to re-run diarization, not
+        // just a playback URL - unlike the audio player, it never triggered
+        // the on-demand fetch itself, so in remote mode this silently no-op'd
+        // on any meeting whose audio had not already been fetched by playing
+        // it first (confirmed: pressing "Re-split speakers" on such a
+        // meeting did nothing at all, with no error).
+        isReclustering = true
+        reclusteringStem = record.stem
+        await ensureSourceAudioLocally(for: record)
+        guard let audioURL = sourceAudioURL(for: record) else {
+            isReclustering = false
+            state = .failed("recluster_audio_unavailable")
+            recoveryAction = Loc.tr("The recording audio is not available on this Mac yet. Play the recording once to fetch it, then retry.")
+            return
+        }
+        let recordingDirectory = store.recordDirectoryPath(stem: record.stem)
+        // `audioURL` is where THIS Mac keeps its own copy - `sourceAudioURL`
+        // resolves it under `store.recordDirectoryURL`, which in remote mode
+        // is the client's local cache directory, not the server's. The
+        // backend RPC runs on the paired Mac mini and reads its own
+        // canonical store, so sending that client-local path as `audio_path`
+        // sent a file that only exists on this Mac to a server that can
+        // never see it - the mini's `canonical_audio_path` rejects it
+        // instantly (`audio_path must stay directly inside its canonical
+        // record`), which is indistinguishable from any other backend
+        // failure once it reaches this call's generic `.failure` branch
+        // (confirmed against the real mini: an `invalid_local_processing_
+        // request` error came back in ~50ms, not a slow-diarization
+        // timeout). Only the filename travels client to server; the
+        // directory it is resolved against is `recordingDirectory` above,
+        // which is already server-rooted in both modes.
         let request = LocalReclusterRequest(
-            recordingDirectory: store.recordDirectoryPath(stem: record.stem),
-            audioPath: audioURL.path,
+            recordingDirectory: recordingDirectory,
+            audioPath: URL(fileURLWithPath: recordingDirectory).appendingPathComponent(audioURL.lastPathComponent).path,
             numSpeakers: count
         )
-        isReclustering = true
         let result = await Task.detached(priority: .utility) { [backend] in
             Result { try backend.recluster(request) }
         }.value
@@ -1258,22 +1383,25 @@ final class MeetingWorkspaceController: ObservableObject {
     /// published so the player UI can show the conversion state.
     @Published private(set) var isPreparingPlayback = false
 
-    func preparePlayableAudio(for record: MeetingRecord) async -> URL? {
-        if sourceAudioURL(for: record) == nil {
-            // Audio is excluded from the periodic cache sync (R7); fetch the
-            // specific file this record needs on demand. A disconnected mini
-            // simply leaves both fetches unsatisfied and sourceAudioURL(for:)
-            // keeps returning nil, which the player already treats as
-            // "unavailable" rather than an error (R4/AC5).
-            let localDirectory = store.recordDirectoryURL(stem: record.stem)
-            for fileName in [record.processedAudioFile, record.originalAudioFile].compactMap({ $0 }) {
-                await audioFetcher.ensureAvailable(
-                    localURL: localDirectory.appendingPathComponent(fileName),
-                    stem: record.stem,
-                    filename: fileName
-                )
-            }
+    /// Audio is excluded from the periodic cache sync (R7), so any caller
+    /// that needs the actual bytes - not just a playback URL - has to pull
+    /// them on demand first. A disconnected mini simply leaves the fetch
+    /// unsatisfied and `sourceAudioURL(for:)` keeps returning nil, which
+    /// callers already treat as "unavailable" rather than an error (R4/AC5).
+    private func ensureSourceAudioLocally(for record: MeetingRecord) async {
+        guard sourceAudioURL(for: record) == nil else { return }
+        let localDirectory = store.recordDirectoryURL(stem: record.stem)
+        for fileName in [record.processedAudioFile, record.originalAudioFile].compactMap({ $0 }) {
+            await audioFetcher.ensureAvailable(
+                localURL: localDirectory.appendingPathComponent(fileName),
+                stem: record.stem,
+                filename: fileName
+            )
         }
+    }
+
+    func preparePlayableAudio(for record: MeetingRecord) async -> URL? {
+        await ensureSourceAudioLocally(for: record)
         guard let original = sourceAudioURL(for: record) else { return nil }
         if let ready = PlayableAudioCache.existingPlayableURL(for: original) { return ready }
         isPreparingPlayback = true

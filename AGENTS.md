@@ -1,6 +1,7 @@
 # Agent Notes
 
 - Local transcription pipeline: cost profile, Whisper `initial_prompt` behavior, and measured dead ends - [docs/transcription-pipeline.md](docs/transcription-pipeline.md). Read before touching `backend/damso/processing.py` or `model_setup.py`.
+- Daemon request responsiveness incident and resolution: slow RPC operations previously blocked the event loop and could wedge the whole server - [docs/daemon-request-blocking-handoff.md](docs/daemon-request-blocking-handoff.md). Read before touching `backend/damso/server/routes_v1.py` or `backend/damso/server/queue.py`.
 
 <!-- harness:agents-namespace:start -->
 ## Harness Namespace (`agents/`)

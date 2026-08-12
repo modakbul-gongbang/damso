@@ -204,6 +204,38 @@ func deleteOutboxAudioIfPhaseOneCompleteRemovesOnlyAudioFilesOnceConfirmed() thr
     #expect(FileManager.default.fileExists(atPath: recordDirectory.appendingPathComponent("meeting.json").path))
 }
 
+/// The periodic outbox sweep must leave the actively-recording stem alone:
+/// its outbox directory is a live write target (growing audio, unfinalized
+/// m4a). A real meeting hit this - the sweep uploaded a 20-second truncated
+/// snapshot of a 20-minute recording one minute in, the server committed and
+/// processed the fragment, and the real post-stop upload was then refused as
+/// a duplicate. Skipping the excluded stem is observable through the same
+/// loop's audio-cleanup step, which shares the skip.
+@Test
+func outboxSweepSkipsTheExcludedActivelyRecordingStem() async throws {
+    let (cacheRoot, outboxRoot) = temporaryDirectoryPair()
+    defer { try? FileManager.default.removeItem(at: cacheRoot.deletingLastPathComponent()) }
+    let outbox = MeetingStore(root: outboxRoot, minimumFreeBytes: 0)
+    var record = try outbox.createRecord(MeetingDraft(stem: "recording-in-progress", source: .local, title: "Live"))
+    record.originalAudioFile = "microphone.caf"
+    try outbox.commit(record)
+    let audioURL = outbox.recordDirectoryURL(stem: "recording-in-progress").appendingPathComponent("microphone.caf")
+    try Data("still growing".utf8).write(to: audioURL)
+    // A cache copy with a phase-one transcript makes the sweep's cleanup
+    // step want to delete the outbox audio - unless the stem is excluded.
+    let cache = MeetingStore(root: cacheRoot, minimumFreeBytes: 0)
+    let cachedRecord = try cache.createRecord(MeetingDraft(stem: "recording-in-progress", source: .local, title: "Live"))
+    try cache.commit(cachedRecord, artifacts: ["transcript.raw.json": Data("{\"segments\":[]}".utf8)])
+
+    let store = makeRemoteStore(cacheRoot: cacheRoot, outboxRoot: outboxRoot)
+
+    await store.retryPendingOutboxWork(excludingStems: ["recording-in-progress"])
+    #expect(FileManager.default.fileExists(atPath: audioURL.path))
+
+    await store.retryPendingOutboxWork()
+    #expect(!FileManager.default.fileExists(atPath: audioURL.path))
+}
+
 @Test
 func updateRecordRequestEncodesTheFullRecordWithCanonicalDateFormattingAndFieldNames() throws {
     let record = MeetingRecord(stem: "fixture", source: .local, title: "Renamed", hints: MeetingHints(participants: [], topic: nil, domainTerms: [], numSpeakers: nil))

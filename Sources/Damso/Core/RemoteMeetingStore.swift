@@ -61,6 +61,26 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         }
     }
 
+    /// Cheap, unauthenticated reachability probe (`/v1/version`) independent
+    /// of any real RPC traffic. `RemoteConnectivityTracker` (R9b) only ever
+    /// updates as a side effect of other calls succeeding or failing on
+    /// their own - with no such traffic happening, a real but transient
+    /// disconnection (e.g. right at launch, before the network is fully up)
+    /// left the UI stuck reporting "disconnected" indefinitely even once the
+    /// server was reachable again, since nothing ever prompted a fresh look
+    /// (confirmed live: the mini answered instantly to a direct probe while
+    /// the app's own banner still read "Recording needs attention" from a
+    /// stale verdict). The connection-status poll timer uses this to
+    /// self-heal on its own 5s cadence instead of waiting for incidental
+    /// traffic that might not come for minutes. A no-op returning `true` in
+    /// local mode, where the whole notion of "reachable" does not apply.
+    func probeReachability() async -> Bool {
+        guard case .remote(let host, let port, _) = connectionConfiguration.mode else { return true }
+        return await Task.detached(priority: .utility) {
+            (try? DamsoHTTPClient.probeVersion(host: host, port: port)) != nil
+        }.value
+    }
+
     /// D-15's incremental changelist sync: a no-op returning `true`
     /// immediately in local mode (the "cache" already is the canonical
     /// store), otherwise pulls everything `/v1/changes` reports changed
@@ -200,6 +220,17 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
             return
         }
         try sendRecordOperation(DeleteRecordRequest(recordingDirectory: recordDirectoryPath(stem: stem)))
+        // The incremental sync (D-15) carries no deletion tombstones - it
+        // only lists recordings that exist - so a copy left in the cache (or
+        // a stale outbox leftover from before handoff cleanup) resurrects
+        // the deleted meeting in the UI forever (confirmed via a real
+        // two-machine run: a server-side delete succeeded, the local copies
+        // stayed, and every retry then failed against the already-gone
+        // server directory). Purging both mirrors here is what actually
+        // completes the delete on this Mac; in local mode the RPC above
+        // already removed the canonical directory, making these no-ops.
+        try? cache.delete(stem: stem)
+        try? outbox.delete(stem: stem)
     }
 
     func quarantine(stem: String, reason: String) throws {
@@ -263,9 +294,9 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
     /// One idempotent pass over outbox state (D-23 retry, R9): a handoff
     /// interrupted by a disconnected server resumes automatically once the
     /// connection is back, without a live reconnect listener of its own.
-    func retryPendingOutboxWork() async {
+    func retryPendingOutboxWork(excludingStems excluded: Set<String> = []) async {
         guard let stems = try? outboxStems() else { return }
-        for stem in stems {
+        for stem in stems where !excluded.contains(stem) {
             if (try? cache.load(stem: stem)) == nil {
                 _ = try? await handOff(stem: stem)
             }
@@ -322,6 +353,22 @@ final class RemoteMeetingStore: MeetingStoring, @unchecked Sendable {
         _ = try await Task.detached(priority: .utility) { [client] in
             try client.triggerSummary(stem: stem, agent: agent, language: language, meetingDate: meetingDate)
         }.value
+    }
+
+    /// A queue status of `done` only proves that the server committed the
+    /// artifact. In remote mode the local read cache can still be one sync
+    /// behind, so consumers must pull the result before decoding it. Returning
+    /// false keeps the caller polling instead of turning a transient cache lag
+    /// into a permanent `summary_artifact_invalid` failure.
+    func prepareCompletedArtifacts(stem: String, kind: String?) async -> Bool {
+        guard needsCacheSync, kind == "summary" else { return true }
+        let destination = cache.recordDirectoryURL(stem: stem).appendingPathComponent("summary.json")
+        do {
+            try await pullFile(stem: stem, filename: "summary.json", to: destination)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Fetches one file directly (metadata or audio alike, D-15) - used

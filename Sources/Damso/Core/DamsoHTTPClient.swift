@@ -55,7 +55,7 @@ struct DamsoHTTPClient {
     /// `guardRemoteWrite`-style UI feedback to feel like a response rather
     /// than a hang. Uploads use their own longer timeout below - a real
     /// meeting recording legitimately takes longer than 15s to transfer.
-    private static let defaultTimeout: TimeInterval = 15
+    static let defaultTimeout: TimeInterval = 15
 
     private func authorizedRequest(url: URL, method: String) -> URLRequest {
         var request = URLRequest(url: url, timeoutInterval: Self.defaultTimeout)
@@ -72,7 +72,21 @@ struct DamsoHTTPClient {
     /// Encodes `request` as JSON, POSTs it to `/v1/rpc`, and returns the raw
     /// response bytes after rejecting a protocol/transport-level error.
     /// Callers decode the remaining ok/error envelope with `DamsoHTTPClient.decode`.
-    func send(_ request: some Encodable) throws -> Data {
+    ///
+    /// `/v1/rpc` dispatches straight to `serve.dispatch` synchronously on the
+    /// server (routes_v1.py never offloads it to a thread or subprocess), so
+    /// the client gets no response bytes at all until that call returns - a
+    /// slow operation is a slow *response*, not a slow upload. `recluster` is
+    /// the one dispatch-routed operation that legitimately runs for minutes,
+    /// not milliseconds (a first re-split re-runs diarization over the whole
+    /// recording); the flat 15s default guaranteed it every time, closing
+    /// the connection out from under the still-running server call and
+    /// surfacing as an opaque `recluster_failed` (confirmed against the
+    /// paired Mac mini: its error log showed `ClientDisconnect` while still
+    /// reading/processing the request, timed to exactly this client-side
+    /// timeout). Every other dispatch-routed operation here is plain local
+    /// file I/O and stays on the fast default.
+    func send(_ request: some Encodable, timeout: TimeInterval = Self.defaultTimeout) throws -> Data {
         let body: Data
         do {
             let encoder = JSONEncoder()
@@ -82,6 +96,7 @@ struct DamsoHTTPClient {
             throw DamsoServerError.requestEncoding
         }
         var urlRequest = authorizedRequest(url: configuration.baseURL.appendingPathComponent("v1/rpc"), method: "POST")
+        urlRequest.timeoutInterval = timeout
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = body
         return try performSynchronously(urlRequest)
