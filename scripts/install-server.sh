@@ -13,21 +13,22 @@ repo_root="${0:A:h:h}"
 cd "$repo_root"
 
 : "${DAMSO_STORE:?Set DAMSO_STORE to the canonical store root, e.g. \"$HOME/Library/Application Support/Damso\"}"
+python3_path="${PYTHON:-$(command -v python3)}"
 
 print "Installing the processing + server package..."
-python3 -m pip install -e '.[local-processing,server]'
+"$python3_path" -m pip install -e '.[local-processing,server]'
 
 print "Checking local models..."
-if ! python3 -m damso.model_setup --status | grep -q '"ok": *true'; then
+if ! "$python3_path" -m damso.model_setup --status | grep -q '"ok": *true'; then
   print "Installing local models (this can take a while)..."
-  python3 -m damso.model_setup --install
+  "$python3_path" -m damso.model_setup --install
 fi
 
 print "Checking server credentials..."
 credentials_dir="${DAMSO_SERVER_CREDENTIALS_DIR:-$HOME/Library/Application Support/Damso/.server-credentials}"
 if [[ ! -f "$credentials_dir/token" ]]; then
   print "Generating access token..."
-  python3 -m damso.server.credentials generate --credentials-dir "$credentials_dir"
+  "$python3_path" -m damso.server.credentials generate --credentials-dir "$credentials_dir"
   print "Save the printed token now - the client's pairing screen needs it, and it will not be printed again."
 else
   print "Credentials already exist at $credentials_dir. Run 'make regenerate-server-credentials' to replace them."
@@ -38,7 +39,6 @@ if [[ "${DAMSO_SERVER_RESIDENT:-0}" == "1" ]]; then
   plist_path="$HOME/Library/LaunchAgents/$label.plist"
   log_dir="$HOME/Library/Logs/Damso"
   mkdir -p "$HOME/Library/LaunchAgents" "$log_dir"
-  python3_path="$(command -v python3)"
   host="${DAMSO_SERVER_HOST:-0.0.0.0}"
   port="${DAMSO_SERVER_PORT:-8787}"
   # launchd starts the service with the bare system PATH
