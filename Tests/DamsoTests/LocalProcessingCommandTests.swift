@@ -52,6 +52,14 @@ func localSummaryRequestNeverCarriesTranscriptText() throws {
 }
 
 @Test
+func agentBackedRpcTimeoutsOutlastTheServerAgentBoundary() {
+    #expect(LocalSpeakerHintsProcessRunner.timeout == 150)
+    #expect(LocalTranscriptCleanupProcessRunner.timeout == 150)
+    #expect(LocalSpeakerHintsProcessRunner.timeout > 120)
+    #expect(LocalTranscriptCleanupProcessRunner.timeout > 120)
+}
+
+@Test
 func personNoteRequestCarriesOnlyTheAcceptedNoteAndCanonicalPaths() throws {
     let request = LocalPersonNoteRequest(
         recordingDirectory: "/tmp/Plaud/recordings/fixture",

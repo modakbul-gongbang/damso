@@ -11,10 +11,13 @@ files, upload.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import sys
 import tarfile
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -51,6 +54,17 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 # read cache (D-15), not to restrict which files GET /files/{name} can serve.
 CHANGE_SIGNAL_FILES = ("meeting.json",)
 
+# `rebuild-index` always writes through the same fixed `index.sqlite3.rebuild`
+# staging path. Once requests can run outside the event-loop thread, two
+# simultaneous rebuilds must not race each other over that one file.
+_index_rebuild_lock = threading.Lock()
+
+# Reclustering rewrites the transcript generation while transcript cleanup
+# writes an index-addressed overlay for that generation. Keep those two
+# mutations serialized per recording even though both now run outside the
+# event loop. Access to this mapping itself stays on the event-loop thread.
+_recording_mutation_locks: dict[str, asyncio.Lock] = {}
+
 
 def get_store(request: Request) -> serve.Store:
     return request.app.state.store
@@ -68,7 +82,7 @@ async def rpc(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="request body must be a JSON object")
     operation = body.get("operation")
     if operation in EXTRA_OPERATIONS:
-        return _dispatch_extra_operation(operation, body)
+        return await _dispatch_extra_operation(operation, body)
     # D-16: over HTTP the protocol version is negotiated by the
     # X-Damso-Protocol-Version header (the middleware in app.py 409s a
     # mismatch before this handler runs), and the client deliberately does
@@ -81,6 +95,8 @@ async def rpc(request: Request) -> dict[str, Any]:
     # two-machine test: delete and summary-retry failed in the app against
     # a server whose log showed only 200s).
     body["protocol_version"] = serve.PROTOCOL_VERSION
+    if operation == "recluster":
+        return await _dispatch_recluster(store, body)
     response = serve.dispatch(store, body)
     if operation == "commit-record" and response.get("ok"):
         get_queue(request).enqueue_phase_one(response["recording_stem"])
@@ -92,22 +108,76 @@ async def rpc(request: Request) -> dict[str, Any]:
     return response
 
 
-def _dispatch_extra_operation(operation: str, body: dict[str, Any]) -> dict[str, Any]:
+async def _dispatch_extra_operation(operation: str, body: dict[str, Any]) -> dict[str, Any]:
     try:
         if operation == "speaker-hints":
-            return speaker_hints.execute_request(body)
+            return await asyncio.to_thread(speaker_hints.execute_request, body)
         if operation == "transcript-cleanup":
-            return transcript_cleanup.execute_request(body)
+            async with _recording_mutation_lock(body):
+                return await asyncio.to_thread(transcript_cleanup.execute_request, body)
         if operation == "rebuild-index":
             store_root = body.get("store_root")
             if not isinstance(store_root, str) or not store_root:
                 raise HTTPException(status_code=400, detail="store_root is required")
-            return index_module.build_index(Path(store_root))
+            return await asyncio.to_thread(_rebuild_index_serially, Path(store_root))
         raise HTTPException(status_code=400, detail=f"unhandled extra operation: {operation!r}")
     except HTTPException:
         raise
     except Exception as error:  # noqa: BLE001 - mirrors serve.dispatch's own boundary
         return {"ok": False, "error": {"code": "extra_operation_failed", "message": str(error)}}
+
+
+async def _dispatch_recluster(store: serve.Store, body: dict[str, Any]) -> dict[str, Any]:
+    """Run native diarization in a separate process while preserving RPC shape.
+
+    A worker thread is insufficient here: sherpa-onnx performs CPU-heavy
+    native inference and the server has already observed that inference
+    starving the parent interpreter. `damso.processing` is the existing
+    one-request JSON subprocess boundary used by the processing queue, so the
+    synchronous POST/wait/response client contract does not need to change.
+    """
+    try:
+        serve.require_request_paths_inside_store(store, body)
+        async with _recording_mutation_lock(body):
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "damso.processing",
+                "--request",
+                "-",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await process.communicate(json.dumps(body).encode("utf-8"))
+            except BaseException:
+                if process.returncode is None:
+                    process.terminate()
+                    await process.wait()
+                raise
+        try:
+            response = json.loads(stdout)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            tail = stderr.decode("utf-8", "replace")[-2_000:]
+            raise RuntimeError(
+                f"damso.processing exited {process.returncode} without a JSON response: {tail or '(no stderr)'}"
+            ) from error
+        if not isinstance(response, dict):
+            raise RuntimeError("damso.processing returned a non-object JSON response")
+        return response
+    except Exception as error:  # noqa: BLE001 - mirrors serve.dispatch's boundary
+        return {"ok": False, "error": serve.processing.public_error(error)}
+
+
+def _recording_mutation_lock(body: dict[str, Any]) -> asyncio.Lock:
+    key = str(body.get("recording_directory") or "")
+    return _recording_mutation_locks.setdefault(key, asyncio.Lock())
+
+
+def _rebuild_index_serially(store_root: Path) -> dict[str, Any]:
+    with _index_rebuild_lock:
+        return index_module.build_index(store_root)
 
 
 @router.post("/recordings/{stem}/summary")

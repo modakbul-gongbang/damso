@@ -18,6 +18,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import uvicorn
@@ -120,6 +121,88 @@ class LoopbackTests(unittest.TestCase):
                 response = httpx.get(f"{live.base_url}/v1/version", timeout=5)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["protocolVersion"], 1)
+
+    def test_agent_rpc_does_not_block_health_while_waiting(self):
+        """Agent CLIs may take two minutes; their synchronous wait must run
+        outside uvicorn's event loop so every other client stays reachable."""
+        for target in (
+            "damso.server.routes_v1.speaker_hints.execute_request",
+            "damso.server.routes_v1.transcript_cleanup.execute_request",
+        ):
+            with self.subTest(target=target), store_and_config() as config:
+                with patch(target, side_effect=lambda body: (time.sleep(1.0) or {"ok": True})):
+                    with LiveServer(config) as live:
+                        operation = "speaker-hints" if "speaker_hints" in target else "transcript-cleanup"
+                        rpc_result: dict[str, object] = {}
+
+                        def run_rpc() -> None:
+                            rpc_result["response"] = httpx.post(
+                                f"{live.base_url}/v1/rpc",
+                                headers={"X-Damso-Protocol-Version": "1"},
+                                json={"operation": operation, "recording_directory": str(config.store_root / "Plaud" / "recordings" / "fixture")},
+                                timeout=5,
+                            )
+
+                        thread = threading.Thread(target=run_rpc)
+                        thread.start()
+                        time.sleep(0.15)
+                        started = time.monotonic()
+                        health = httpx.get(f"{live.base_url}/v1/health", timeout=0.5)
+                        elapsed = time.monotonic() - started
+                        thread.join(timeout=5)
+
+                        self.assertEqual(health.status_code, 200)
+                        self.assertLess(elapsed, 0.5)
+                        self.assertFalse(thread.is_alive())
+                        self.assertEqual(rpc_result["response"].status_code, 200)
+
+    def test_recluster_uses_a_subprocess_without_blocking_health(self):
+        class SlowProcess:
+            returncode = 0
+
+            async def communicate(self, payload):
+                import asyncio
+
+                await asyncio.sleep(1.0)
+                return b'{"ok": true, "operation": "recluster"}', b""
+
+            def terminate(self):
+                self.returncode = 143
+
+            async def wait(self):
+                return self.returncode
+
+        calls: list[tuple[object, ...]] = []
+
+        async def create_process(*args, **kwargs):
+            calls.append(args)
+            return SlowProcess()
+
+        with store_and_config() as config:
+            recording = config.store_root / "Plaud" / "recordings" / "fixture"
+            recording.mkdir(parents=True)
+            with patch("damso.server.routes_v1.asyncio.create_subprocess_exec", side_effect=create_process):
+                with LiveServer(config) as live:
+                    rpc_result: dict[str, object] = {}
+
+                    def run_rpc() -> None:
+                        rpc_result["response"] = httpx.post(
+                            f"{live.base_url}/v1/rpc",
+                            headers={"X-Damso-Protocol-Version": "1"},
+                            json={"operation": "recluster", "recording_directory": str(recording)},
+                            timeout=5,
+                        )
+
+                    thread = threading.Thread(target=run_rpc)
+                    thread.start()
+                    time.sleep(0.15)
+                    health = httpx.get(f"{live.base_url}/v1/health", timeout=0.5)
+                    thread.join(timeout=5)
+
+                    self.assertEqual(health.status_code, 200)
+                    self.assertFalse(thread.is_alive())
+                    self.assertTrue(rpc_result["response"].json()["ok"])
+                    self.assertEqual(calls[0][1:], ("-m", "damso.processing", "--request", "-"))
 
     def test_loopback_write_succeeds_without_a_token(self):
         with store_and_config() as config:

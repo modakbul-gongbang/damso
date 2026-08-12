@@ -40,10 +40,14 @@ enum LocalTranscriptCleanupCommandError: Error, Equatable {
 }
 
 enum LocalTranscriptCleanupProcessRunner {
+    /// The server-side agent boundary allows a CLI request to run for 120s.
+    /// Leave transport slack so a valid slow result is not discarded first.
+    static let timeout: TimeInterval = 150
+
     static func run(_ request: LocalTranscriptCleanupRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalTranscriptCleanupResult {
         let data: Data
         do {
-            data = try client.send(request)
+            data = try client.send(request, timeout: timeout)
         } catch DamsoServerError.payloadTooLarge {
             throw LocalTranscriptCleanupCommandError.oversizedResponse
         } catch {
