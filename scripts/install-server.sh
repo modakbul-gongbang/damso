@@ -91,12 +91,33 @@ if [[ "${DAMSO_SERVER_RESIDENT:-0}" == "1" ]]; then
     <string>$log_dir/server.log</string>
     <key>StandardErrorPath</key>
     <string>$log_dir/server.error.log</string>
-</dict>
+  </dict>
 </plist>
 PLIST
   plutil -lint "$plist_path" >/dev/null
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  # launchd may keep the old label reserved briefly after bootout. An
+  # immediate bootstrap then fails with error 5 even though the plist is
+  # valid and the previous process is already gone. Wait for removal to be
+  # observable and retry the registration for a few seconds.
+  for _ in {1..20}; do
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+  registered=0
+  for attempt in {1..5}; do
+    if launchctl bootstrap "gui/$(id -u)" "$plist_path"; then
+      registered=1
+      break
+    fi
+    if (( attempt < 5 )); then
+      sleep 1
+    fi
+  done
+  if [[ "$registered" != "1" ]]; then
+    print -u2 "Failed to register the background service after 5 attempts ($label)."
+    exit 1
+  fi
   launchctl kickstart "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   print "Background service registered and started ($label)."
 else
