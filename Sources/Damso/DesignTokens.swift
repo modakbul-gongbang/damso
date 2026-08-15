@@ -186,13 +186,29 @@ enum DamsoTokens {
 
 extension Font {
     /// The mono eyebrow/caption voice of the editorial system, translated to
-    /// the system monospaced face at native caption scale.
+    /// the system monospaced face. Set at footnote rather than caption: at
+    /// caption scale the mono face is the smallest text in the app and it
+    /// carries real information (dates, speaker counts, sync source), not
+    /// decoration.
     static var damsoEyebrow: Font {
-        .system(.caption, design: .monospaced).weight(.medium)
+        .system(.footnote, design: .monospaced).weight(.medium)
     }
 
     static var damsoMonoCaption: Font {
-        .system(.caption, design: .monospaced)
+        .system(.footnote, design: .monospaced)
+    }
+
+    /// List row titles: meeting titles and person names carry the scan, so
+    /// they sit one step above the surrounding body text.
+    static var damsoRowTitle: Font {
+        .system(.title3).weight(.semibold)
+    }
+
+    /// Prose the user actually reads at length - summary points, profile
+    /// notes, transcript lines - rather than chrome. A step above the system
+    /// body size, which is tuned for dense forms, not for reading.
+    static var damsoReading: Font {
+        .system(size: 15)
     }
 
     /// Editorial display voice: large system type at a lighter weight,

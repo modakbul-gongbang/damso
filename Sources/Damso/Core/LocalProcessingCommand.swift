@@ -141,6 +141,27 @@ struct LocalPersonNoteRequest: Encodable, Sendable {
     }
 }
 
+/// Undo for an automatically applied note: the app writes summary notes to
+/// the profile without asking, so the meeting view offers a per-note removal
+/// that has to reach the same profile file.
+struct LocalRemovePersonNoteRequest: Encodable, Sendable {
+    let operation = "remove-person-note"
+    let recordingDirectory: String
+    let peoplesDirectory: String
+    let meetingDate: String
+    let name: String
+    let note: String
+
+    enum CodingKeys: String, CodingKey {
+        case operation
+        case recordingDirectory = "recording_directory"
+        case peoplesDirectory = "peoples_directory"
+        case meetingDate = "meeting_date"
+        case name
+        case note
+    }
+}
+
 enum LocalProcessingCommandError: Error, Equatable {
     case requestEncoding
     case launchFailed
@@ -190,6 +211,10 @@ enum LocalProcessingProcessRunner {
     }
 
     static func appendPersonNote(_ request: LocalPersonNoteRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
+        try run(request, client: client)
+    }
+
+    static func removePersonNote(_ request: LocalRemovePersonNoteRequest, client: DamsoHTTPClient = DamsoHTTPClient()) throws -> LocalProcessingResult {
         try run(request, client: client)
     }
 

@@ -17,6 +17,11 @@ struct MeetingMenuBarCard: View {
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+    /// Closes the menu-bar popover itself. A `MenuBarExtra(.window)` panel
+    /// does not dismiss when a button inside it opens another window, so
+    /// without this the card stayed floating on top of the dashboard it had
+    /// just opened.
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -26,6 +31,7 @@ struct MeetingMenuBarCard: View {
                 startDisabled: workspace.isCaptureStartPending,
                 failureMessage: failureMessage,
                 onOpenApp: {
+                    dismiss()
                     NSApp.activate(ignoringOtherApps: true)
                     openWindow(id: "main")
                     openMainWindow()
@@ -72,6 +78,7 @@ struct MeetingMenuBarCard: View {
             actions.stop = actions.record
         }
         actions.openCaptureSettings = {
+            dismiss()
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
@@ -98,6 +105,7 @@ struct MeetingMenuBarCard: View {
             // the main window is closed, and clickable straight to Settings.
             if let syncStatus = externalSync.statusLine {
                 Button {
+                    dismiss()
                     SettingsOpener.open()
                 } label: {
                     Label(syncStatus, systemImage: "exclamationmark.triangle.fill")

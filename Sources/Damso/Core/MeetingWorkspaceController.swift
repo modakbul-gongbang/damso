@@ -47,6 +47,7 @@ protocol LocalProcessingBackend: Sendable {
     func recluster(_ request: LocalReclusterRequest) throws -> LocalProcessingResult
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult
+    func removePersonNote(_ request: LocalRemovePersonNoteRequest) throws -> LocalProcessingResult
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult
     func setPersonEmail(_ request: LocalPersonEmailRequest) throws -> LocalProcessingResult
     func removePersonAlias(_ request: LocalRemovePersonAliasRequest) throws -> LocalProcessingResult
@@ -72,6 +73,10 @@ struct SystemProcessingBackend: LocalProcessingBackend {
 
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult {
         try LocalProcessingProcessRunner.appendPersonNote(request, client: client)
+    }
+
+    func removePersonNote(_ request: LocalRemovePersonNoteRequest) throws -> LocalProcessingResult {
+        try LocalProcessingProcessRunner.removePersonNote(request, client: client)
     }
 
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult {
@@ -182,6 +187,11 @@ final class MeetingWorkspaceController: ObservableObject {
     /// never started for the same stem concurrently.
     private var pollingStems: Set<String> = []
     private var refreshedCandidateStems: Set<String> = []
+    /// Meetings whose leftover proposed notes were already applied (or tried)
+    /// this session, so a failing write is not retried on every reselection.
+    private var backfilledNoteStems: Set<String> = []
+    /// Meetings whose note application is in flight right now.
+    private var applyingNoteStems: Set<String> = []
     private var suggestedStems: Set<String> = []
     private var cleanedTranscriptStems: Set<String> = []
     /// R7's fourth cache-sync trigger (the 5-10 minute periodic one; the
@@ -699,6 +709,9 @@ final class MeetingWorkspaceController: ObservableObject {
                 scheduleIndexRebuild()
                 performRemoteMaintenanceIfNeeded()
                 postCalendarCandidateNotification(for: record)
+                Task { [weak self] in
+                    await self?.applyPendingPersonNotes(stem: stem)
+                }
             } catch {
                 saveSummaryFailure(record, code: "summary_artifact_invalid")
             }
@@ -773,40 +786,104 @@ final class MeetingWorkspaceController: ObservableObject {
         }
     }
 
-    func acceptPersonNote(_ proposal: PersonNoteProposal, editedNote: String? = nil) async {
+    /// Writes this meeting's undecided person notes into the profiles without
+    /// asking. Approving one note per participant per meeting was a decision
+    /// the user could not make well (the note is true or not regardless of
+    /// which button is convenient), and an unanswered prompt left People
+    /// permanently empty. The meeting view reports what was written and
+    /// offers a per-note removal instead, so the correction cost moved after
+    /// the fact. A note whose write fails stays `.proposed`, so it is
+    /// reported as pending rather than as an applied profile change, and the
+    /// next summary run retries it.
+    func applyPendingPersonNotes(stem: String) async {
         guard guardRemoteWrite() else { return }
-        guard var record = selectedRecord else { return }
-        let noteText = (editedNote ?? proposal.note).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !noteText.isEmpty else { return }
-        let request = LocalPersonNoteRequest(
-            recordingDirectory: store.recordDirectoryPath(stem: record.stem),
-            peoplesDirectory: store.peoplesDirectoryPath,
-            meetingDate: Self.meetingDate.string(from: record.createdAt),
-            name: proposal.name,
-            note: noteText
-        )
-        let result = await Task.detached(priority: .utility) { [backend] in
-            Result { try backend.appendPersonNote(request) }
-        }.value
-        switch result {
-        case .success:
-            updatePersonNote(in: &record, matching: proposal, to: .accepted, note: noteText)
-            try? store.update(record)
-            replace(record)
-            selectedRecord = record
-            recoveryAction = nil
-        case .failure:
-            recoveryAction = Loc.tr("The profile note was not saved. The profile file stays unchanged; retry from this proposal.")
+        // Opening a meeting and its own summary completing can both ask for
+        // the same notes; without this the profile got the same line twice.
+        guard !applyingNoteStems.contains(stem) else { return }
+        applyingNoteStems.insert(stem)
+        defer { applyingNoteStems.remove(stem) }
+        guard var record = try? store.load(stem: stem) else { return }
+        let pending = (record.personNotes ?? []).filter { $0.status == .proposed }
+        guard !pending.isEmpty else { return }
+        let recordingDirectory = store.recordDirectoryPath(stem: stem)
+        let peoplesDirectory = store.peoplesDirectoryPath
+        let meetingDate = Self.meetingDate.string(from: record.createdAt)
+        var appliedAny = false
+        var failedAny = false
+        for proposal in pending {
+            let request = LocalPersonNoteRequest(
+                recordingDirectory: recordingDirectory,
+                peoplesDirectory: peoplesDirectory,
+                meetingDate: meetingDate,
+                name: proposal.name,
+                note: proposal.note
+            )
+            let result = await Task.detached(priority: .utility) { [backend] in
+                Result { try backend.appendPersonNote(request) }
+            }.value
+            switch result {
+            case .success:
+                updatePersonNote(in: &record, matching: proposal, to: .accepted, note: proposal.note)
+                appliedAny = true
+            case .failure:
+                failedAny = true
+            }
+        }
+        if failedAny {
+            recoveryAction = Loc.tr("Some profile notes were not written. Those profiles stay unchanged; generate the summary again to retry.")
+        }
+        guard appliedAny else { return }
+        try? store.update(record)
+        replace(record)
+        if selectedRecord?.stem == stem { selectedRecord = record }
+        people = (try? store.listPeople(records: records)) ?? people
+        scheduleIndexRebuild()
+    }
+
+    /// Meetings summarized before automatic application existed still hold
+    /// their notes as undecided proposals, and nothing would ever apply them:
+    /// the summary that would have done it already ran. Opening the meeting
+    /// applies them, so the section never reports "saved to profiles" above a
+    /// list of notes that were never saved. Once per stem per session, so a
+    /// persistent write failure does not retry on every selection change.
+    private func applyPendingPersonNotesIfNeeded(for record: MeetingRecord) {
+        guard record.personNotes?.contains(where: { $0.status == .proposed }) == true,
+              !backfilledNoteStems.contains(record.stem) else { return }
+        backfilledNoteStems.insert(record.stem)
+        Task { [weak self] in
+            await self?.applyPendingPersonNotes(stem: record.stem)
         }
     }
 
-    func rejectPersonNote(_ proposal: PersonNoteProposal) {
+    /// Deletes one already-applied note from the person's profile. This is
+    /// the whole safety net for automatic application, so the record only
+    /// stops showing the note as applied once the profile file actually lost
+    /// the line.
+    func removeAppliedPersonNote(_ note: PersonNoteProposal) async {
         guard guardRemoteWrite() else { return }
         guard var record = selectedRecord else { return }
-        updatePersonNote(in: &record, matching: proposal, to: .rejected, note: proposal.note)
-        try? store.update(record)
-        replace(record)
-        selectedRecord = record
+        let request = LocalRemovePersonNoteRequest(
+            recordingDirectory: store.recordDirectoryPath(stem: record.stem),
+            peoplesDirectory: store.peoplesDirectoryPath,
+            meetingDate: Self.meetingDate.string(from: record.createdAt),
+            name: note.name,
+            note: note.note
+        )
+        let result = await Task.detached(priority: .utility) { [backend] in
+            Result { try backend.removePersonNote(request) }
+        }.value
+        switch result {
+        case .success:
+            updatePersonNote(in: &record, matching: note, to: .rejected, note: note.note)
+            try? store.update(record)
+            replace(record)
+            selectedRecord = record
+            people = (try? store.listPeople(records: records)) ?? people
+            recoveryAction = nil
+            scheduleIndexRebuild()
+        case .failure:
+            recoveryAction = Loc.tr("The note was not removed. The profile still holds it; retry after checking local processing diagnostics.")
+        }
     }
 
     /// Permanently deletes one meeting after the UI's explicit confirmation.
@@ -1812,6 +1889,7 @@ final class MeetingWorkspaceController: ObservableObject {
         }
         selectedRecord = record
         processingArtifacts = (try? store.processingArtifacts(stem: record.stem)) ?? .empty
+        applyPendingPersonNotesIfNeeded(for: record)
         refreshCandidatesIfNeeded(for: record)
         requestSpeakerSuggestionsIfNeeded(for: record)
         requestTranscriptCleanupIfNeeded(for: record)

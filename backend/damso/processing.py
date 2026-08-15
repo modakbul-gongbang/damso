@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 from .contracts import ContractError, apply_resolutions, atomic_write_json, ensure_safe_stem, normalize_hint, write_phase_one
 from .model_setup import SHERPA_EMBEDDING_FILENAME, WHISPER_DIRECTORY_NAME, default_model_root
 from .nme_sc import cluster_embeddings
-from .people import VOICE_EMBEDDING_MODEL, append_person_note, apply_people_resolutions, compatible_voice_candidates, remove_person_alias, set_person_email
+from .people import VOICE_EMBEDDING_MODEL, append_person_note, apply_people_resolutions, compatible_voice_candidates, remove_person_alias, remove_person_note, set_person_email
 
 
 class ProcessingError(RuntimeError):
@@ -1497,24 +1497,27 @@ def execute_request(request: Mapping[str, Any], environment: Mapping[str, str] |
             "speaker_count": updated,
             "artifact_files": ["identification.json"],
         }
-    if operation == "append-person-note":
+    if operation in {"append-person-note", "remove-person-note"}:
         peoples_directory = canonical_peoples_directory(recording_directory, request.get("peoples_directory"))
         name = request.get("name")
         note = request.get("note")
         if not isinstance(name, str) or not isinstance(note, str):
-            raise ProcessingError("append-person-note requires a name and note")
+            raise ProcessingError(f"{operation} requires a name and note")
         meeting_date = request.get("meeting_date")
         if meeting_date is not None and not isinstance(meeting_date, str):
             raise ProcessingError("meeting_date must be an ISO date string when provided")
         try:
-            append_person_note(peoples_directory, name, note, meeting_date)
+            if operation == "append-person-note":
+                append_person_note(peoples_directory, name, note, meeting_date)
+            else:
+                remove_person_note(peoples_directory, name, note, meeting_date)
         except ValueError as error:
             raise ProcessingError(str(error)) from error
         return {
             "ok": True,
             "operation": operation,
             "recording_stem": recording_directory.name,
-            "stage": "person_note_saved",
+            "stage": "person_note_saved" if operation == "append-person-note" else "person_note_removed",
             "artifact_files": [],
         }
     raise ProcessingError("unsupported processing operation")

@@ -47,6 +47,7 @@ PROCESSING_OPERATIONS = frozenset(
         "set-person-email",
         "remove-person-alias",
         "append-person-note",
+        "remove-person-note",
     }
 )
 

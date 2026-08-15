@@ -357,6 +357,7 @@ private final class RecordingFakeBackend: LocalProcessingBackend, @unchecked Sen
     // still need a safe response rather than a crash if they happen to run.
     func applyResolutions(_ request: LocalResolutionProcessingRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func appendPersonNote(_ request: LocalPersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
+    func removePersonNote(_ request: LocalRemovePersonNoteRequest) throws -> LocalProcessingResult { fatalError("unused") }
     func refreshCandidates(_ request: LocalRefreshCandidatesRequest) throws -> LocalProcessingResult {
         LocalProcessingResult(ok: true, stage: "candidates_refreshed", speakerCount: nil)
     }

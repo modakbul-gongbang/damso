@@ -41,6 +41,17 @@ private final class FakeBackend: LocalProcessingBackend, @unchecked Sendable {
         return LocalProcessingResult(ok: true, stage: "person_note_saved", speakerCount: nil)
     }
 
+    var noteRemovals: [LocalRemovePersonNoteRequest] = []
+    var noteRemovalShouldFail = false
+
+    func removePersonNote(_ request: LocalRemovePersonNoteRequest) throws -> LocalProcessingResult {
+        lock.lock()
+        defer { lock.unlock() }
+        if noteRemovalShouldFail { throw LocalProcessingCommandError.failed }
+        noteRemovals.append(request)
+        return LocalProcessingResult(ok: true, stage: "person_note_removed", speakerCount: nil)
+    }
+
     var refreshRequests: [LocalRefreshCandidatesRequest] = []
     var hintsRequests: [LocalSpeakerHintsRequest] = []
     var hintsResult = LocalSpeakerHintsResult(ok: true, status: "complete", errorCode: nil, suggestions: [
@@ -134,34 +145,98 @@ private final class NoopCapture: RecordingCapture {
 }
 
 @Test @MainActor
-func personNoteProposalsOnlyTouchProfilesAfterAcceptance() async throws {
+func personNotesApplyAutomaticallyAndRemovalUndoesTheProfileWrite() async throws {
     let (controller, backend, store, root) = try makeWorkspace()
     defer { try? FileManager.default.removeItem(at: root) }
     await controller.applyResolution(speaker: "SPEAKER_00", action: .match, personName: "김구름")
     await controller.applyResolution(speaker: "SPEAKER_01", action: .skip)
     // Summary generation itself is D-13's server-owned queue now (covered by
     // the Python-side loopback suite); this test seeds the proposed note
-    // directly to cover only the note propose/reject/accept lifecycle.
+    // directly to cover only the apply/remove lifecycle.
     var summarized = try store.load(stem: "pipeline-fixture")
     summarized.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)]
     try store.update(summarized)
     controller.refreshLibrary()
-    let proposal = try #require(controller.selectedRecord?.personNotes?.first)
 
-    controller.rejectPersonNote(proposal)
-    #expect(backend.noteRequests.isEmpty)
-    #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .rejected)
-
-    var record = try store.load(stem: "pipeline-fixture")
-    record.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)]
-    try store.update(record)
-    controller.refreshLibrary()
-    let restored = try #require(controller.selectedRecord?.personNotes?.first)
-
-    await controller.acceptPersonNote(restored, editedNote: "커리큘럼 전체를 리드한다.")
+    await controller.applyPendingPersonNotes(stem: "pipeline-fixture")
     #expect(backend.noteRequests.count == 1)
-    #expect(backend.noteRequests.first?.note == "커리큘럼 전체를 리드한다.")
+    #expect(backend.noteRequests.first?.note == "커리큘럼 초안을 담당한다.")
     #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .accepted)
+
+    // A second pass must not write the same note twice: only undecided
+    // proposals are applied.
+    await controller.applyPendingPersonNotes(stem: "pipeline-fixture")
+    #expect(backend.noteRequests.count == 1)
+
+    let applied = try #require(controller.selectedRecord?.personNotes?.first)
+    await controller.removeAppliedPersonNote(applied)
+    #expect(backend.noteRemovals.count == 1)
+    #expect(backend.noteRemovals.first?.name == "김구름")
+    #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .rejected)
+}
+
+/// A meeting summarized before automatic application existed still holds its
+/// notes as undecided proposals, and no future summary run will apply them.
+/// Opening the meeting has to, or the section reports "saved to profiles"
+/// above a list of notes no profile ever received (seen in the real app).
+@Test @MainActor
+func openingAnOlderMeetingAppliesItsLeftoverProposedNotes() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var legacy = try store.load(stem: "pipeline-fixture")
+    legacy.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)]
+    try store.update(legacy)
+
+    controller.refreshLibrary()
+    controller.select(stem: "pipeline-fixture")
+    // The backfill runs as a task off the selection; poll rather than sleep
+    // a fixed amount, which is flaky under a loaded parallel test run.
+    var status: PersonNoteStatus?
+    for _ in 0..<100 {
+        status = try store.load(stem: "pipeline-fixture").personNotes?.first?.status
+        if status == .accepted { break }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+
+    #expect(status == .accepted)
+    #expect(backend.noteRequests.count == 1)
+}
+
+/// Automatic application is only safe because a failed write is reported as
+/// pending instead of as a profile change: the note must stay proposed so the
+/// meeting view never claims a profile holds something it does not.
+@Test @MainActor
+func aFailedPersonNoteWriteLeavesTheNotePending() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    backend.noteShouldFail = true
+    var summarized = try store.load(stem: "pipeline-fixture")
+    summarized.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .proposed)]
+    try store.update(summarized)
+    controller.refreshLibrary()
+
+    await controller.applyPendingPersonNotes(stem: "pipeline-fixture")
+    #expect(backend.noteRequests.isEmpty)
+    #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .proposed)
+    #expect(controller.recoveryAction != nil)
+}
+
+/// Removal only sticks when the profile file actually lost the line, so a
+/// failed removal keeps the note listed as applied.
+@Test @MainActor
+func aFailedRemovalKeepsTheNoteListedAsApplied() async throws {
+    let (controller, backend, store, root) = try makeWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var summarized = try store.load(stem: "pipeline-fixture")
+    summarized.personNotes = [PersonNoteProposal(name: "김구름", note: "커리큘럼 초안을 담당한다.", status: .accepted)]
+    try store.update(summarized)
+    controller.refreshLibrary()
+    backend.noteRemovalShouldFail = true
+
+    let applied = try #require(controller.selectedRecord?.personNotes?.first)
+    await controller.removeAppliedPersonNote(applied)
+    #expect(try store.load(stem: "pipeline-fixture").personNotes?.first?.status == .accepted)
+    #expect(controller.recoveryAction != nil)
 }
 
 /// A regenerated summary replaces the proposals the user has not decided on

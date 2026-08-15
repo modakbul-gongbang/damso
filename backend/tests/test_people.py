@@ -84,6 +84,51 @@ class PersonNoteTests(unittest.TestCase):
                 append_person_note(peoples, "Kim", "   ")
 
 
+class PersonNoteRemovalTests(unittest.TestCase):
+    """Notes are applied without a confirmation step, so removal is the only
+    correction path and has to hit exactly the line the user pointed at."""
+
+    def profile_with_notes(self, temporary: str) -> tuple[Path, Path]:
+        peoples = Path(temporary) / "Plaud" / "peoples"
+        profile = peoples / "Kim" / "profile.md"
+        profile.parent.mkdir(parents=True)
+        profile.write_text(
+            "---\nname: \"Kim\"\nmeeting_count: 2\n---\n## Description\nKeep this.\n\n"
+            "## Notes\n- (2026-07-01) Owns the launch checklist.\n- (2026-07-14) Owns the launch checklist.\n- (2026-07-14) Prefers async updates.\n",
+            encoding="utf-8",
+        )
+        return peoples, profile
+
+    def test_only_the_dated_line_is_removed(self):
+        from damso.people import remove_person_note
+
+        with tempfile.TemporaryDirectory() as temporary:
+            peoples, profile = self.profile_with_notes(temporary)
+            remove_person_note(peoples, "Kim", "Owns the launch checklist.", "2026-07-14")
+            _, body = read_profile(profile, "Kim", "2026-07-14")
+            self.assertIn("- (2026-07-01) Owns the launch checklist.", body)
+            self.assertNotIn("- (2026-07-14) Owns the launch checklist.", body)
+            self.assertIn("- (2026-07-14) Prefers async updates.", body)
+            self.assertIn("Keep this.", body)
+
+    def test_a_missing_line_is_not_an_error_and_changes_nothing(self):
+        from damso.people import remove_person_note
+
+        with tempfile.TemporaryDirectory() as temporary:
+            peoples, profile = self.profile_with_notes(temporary)
+            before = profile.read_text(encoding="utf-8")
+            remove_person_note(peoples, "Kim", "Never said this.", "2026-07-14")
+            self.assertEqual(profile.read_text(encoding="utf-8"), before)
+
+    def test_removing_from_an_unknown_person_is_rejected(self):
+        from damso.people import remove_person_note
+
+        with tempfile.TemporaryDirectory() as temporary:
+            peoples = Path(temporary) / "Plaud" / "peoples"
+            with self.assertRaises(ValueError):
+                remove_person_note(peoples, "Nobody", "Anything.", "2026-07-14")
+
+
 class CandidateThresholdTests(unittest.TestCase):
     def test_noise_level_candidates_are_filtered_and_sorted(self):
         import numpy as np

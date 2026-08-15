@@ -25,8 +25,8 @@ struct DesignReviewWindow: View {
     @State private var correctedTitle = ""
     @State private var correctedSegments: [TranscriptSegment] = []
     @State private var correctedSummaryText = ""
-    @State private var editedNotes: [String: String] = [:]
     @State private var personEmailDraft = ""
+    @State private var isPersonAdminExpanded = false
     @State private var personEmailStatus: String?
     @State private var mergeSourcePerson: LocalPersonProfile?
     @State private var showOriginalTranscript = false
@@ -637,26 +637,7 @@ struct DesignReviewWindow: View {
                 ContentUnavailableView(Loc.tr("No people match the search"), systemImage: "magnifyingglass", description: Text(Loc.tr("Names and profile aliases are searched.")))
             } else {
                 ForEach(filteredPeople) { person in
-                    Button {
-                        selectedPersonID = person.id
-                    } label: {
-                        HStack(spacing: 10) {
-                            PersonBlockAvatar(name: person.name)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(person.name)
-                                    .font(.headline)
-                                Text(personSubtitle(person))
-                                    .font(.damsoMonoCaption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .padding(.vertical, 5)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(selectedPersonID == person.id ? DamsoTokens.accent : Color.primary)
-                    .accessibilityElement(children: .combine)
+                    personRow(person)
                 }
             }
         }
@@ -669,137 +650,81 @@ struct DesignReviewWindow: View {
         }
     }
 
+    /// People rows follow the meeting rows: same selection fill, same title
+    /// and mono meta line, same trailing chevron on the open row. The two
+    /// lists sit in the same column of the same window, so a person reading
+    /// one should not have to re-learn the other.
+    private func personRow(_ person: LocalPersonProfile) -> some View {
+        let isSelected = selectedPersonID == person.id
+        return Button {
+            selectedPersonID = person.id
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                PersonBlockAvatar(name: person.name)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(person.name)
+                        .font(.damsoRowTitle)
+                        .foregroundStyle(.primary)
+                    // A subtitle that reads "0 confirmed meetings · voice
+                    // profile ready" on most rows is noise; only real facts
+                    // are shown.
+                    if let subtitle = personSubtitle(person) {
+                        Text(subtitle)
+                            .font(.damsoMonoCaption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !person.aliases.isEmpty {
+                        BlockChip(title: person.aliases.joined(separator: ", "), block: DamsoTokens.blockCream)
+                    }
+                }
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(DamsoTokens.accent)
+                }
+            }
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: DamsoTokens.compactRadius)
+                .fill(isSelected ? DamsoTokens.accentFocusFill : Color.clear)
+        )
+        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+        .contextMenu {
+            Button(Loc.tr("Merge with another profile..."), systemImage: "person.2.badge.gearshape") {
+                mergeSourcePerson = person
+            }
+            .disabled(workspace.people.count < 2)
+            Button(Loc.tr("Delete from People..."), systemImage: "trash", role: .destructive) {
+                pendingPersonDelete = person
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     @ViewBuilder
     private var personDetail: some View {
         if let person = selectedPerson {
             ScrollView {
                 VStack(alignment: .leading, spacing: DamsoTokens.spacingLG) {
-                    HStack(spacing: 14) {
-                        PersonBlockAvatar(name: person.name, large: true)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(person.name)
-                                .font(.damsoDisplay)
-                            Text(person.hasVoiceProfile ? Loc.tr("Local voice profile ready") : Loc.tr("No saved voice profile"))
-                                .font(.damsoMonoCaption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Meeting history")) {
-                        let meetings = meetings(for: person)
-                        if meetings.isEmpty {
-                            Text(Loc.tr("No confirmed meetings are linked to this person yet."))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(meetings) { record in
-                                    Button {
-                                        workspace.select(stem: record.stem)
-                                        libraryDestination = .meetingLog
-                                    } label: {
-                                        HStack(alignment: .top) {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(meetingDisplayTitle(record))
-                                                    .font(.body.weight(.medium))
-                                                Text("\(record.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(speakingSummary(for: person, in: record))")
-                                                    .font(.damsoMonoCaption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Contact")) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "envelope")
-                                .foregroundStyle(.secondary)
-                            TextField(Loc.tr("Email (optional)"), text: $personEmailDraft)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 300)
-                                .onSubmit { savePersonEmail(person) }
-                            Button(Loc.tr("Save")) { savePersonEmail(person) }
-                                .buttonStyle(DamsoPillButtonStyle(rank: .secondary))
-                            if let status = personEmailStatus {
-                                Text(status)
-                                    .font(.damsoMonoCaption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Aliases")) {
-                        if person.aliases.isEmpty {
-                            Text(Loc.tr("No aliases yet. Display names captured from meetings accumulate here after you confirm a speaker."))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(person.aliases, id: \.self) { alias in
-                                    HStack(spacing: 8) {
-                                        BlockChip(title: alias, block: DamsoTokens.blockCream)
-                                        Button {
-                                            Task { await workspace.removePersonAlias(name: person.name, alias: alias) }
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel(String(format: Loc.tr("Remove alias %@"), alias))
-                                    }
-                                }
-                                Text(Loc.tr("Aliases are used for search and candidate matching. Only the primary name is shown elsewhere."))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Merge profiles")) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Button(Loc.tr("Merge with another profile..."), systemImage: "person.2.badge.gearshape") {
-                                mergeSourcePerson = person
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(workspace.people.count < 2)
-                            Text(Loc.tr("Combines duplicate profiles: meeting history, voice profile, notes, and aliases move to the name you keep. The absorbed folder is archived first."))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Profile notes")) {
-                        if let notes = workspace.profileNotes(for: person) {
-                            Text(notes)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        } else {
-                            Text(Loc.tr("Accepted meeting notes about this person will appear here."))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    EditorialSection(title: Loc.tr("Delete person")) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Button(Loc.tr("Delete from People..."), systemImage: "trash", role: .destructive) {
-                                pendingPersonDelete = person
-                            }
-                            .buttonStyle(.bordered)
-                            Text(Loc.tr("The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back."))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    personHeader(person)
+                    // What the app learned about this person is the reason to
+                    // open this screen at all, so it leads. Contact, aliases,
+                    // merging and deletion are maintenance the user touches
+                    // once in a while and now live behind one disclosure,
+                    // instead of six equally-weighted sections where a
+                    // destructive action sat as prominently as an email field.
+                    personNotesSection(person)
+                    personMeetingsSection(person)
+                    personAdminSection(person)
                 }
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
@@ -814,6 +739,227 @@ struct DesignReviewWindow: View {
             ContentUnavailableView(Loc.tr("Select a person"), systemImage: "person.2", description: Text(Loc.tr("People confirmed from speaker review appear here.")))
                 .navigationTitle(Loc.tr("Person detail"))
         }
+    }
+
+    private func personHeader(_ person: LocalPersonProfile) -> some View {
+        HStack(spacing: 14) {
+            PersonBlockAvatar(name: person.name, large: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(person.name)
+                    .font(.damsoDisplay)
+                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    let count = meetings(for: person).count
+                    if count > 0 {
+                        BlockChip(title: String(format: Loc.tr("%d meetings"), count), block: DamsoTokens.blockCream)
+                    }
+                    if person.hasVoiceProfile {
+                        BlockChip(title: Loc.tr("Voice profile"), block: DamsoTokens.blockMint)
+                    }
+                    ForEach(person.aliases, id: \.self) { alias in
+                        BlockChip(title: alias, block: DamsoTokens.blockLilac)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Renders the parsed `## Notes` log: the user's own prose first, then
+    /// the dated facts newest-first. The raw file is never shown, so the
+    /// Markdown bullets and authoring comments that used to leak into this
+    /// screen as literal text stay in the file where they belong.
+    private func personNotesSection(_ person: LocalPersonProfile) -> some View {
+        let digest = ProfileNoteDigest.parse(workspace.profileNotes(for: person))
+        return EditorialSection(title: Loc.tr("What we know")) {
+            if digest.isEmpty {
+                Text(Loc.tr("Notes learned from this person's meetings will appear here."))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !digest.freeform.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(digest.freeform, id: \.self) { line in
+                                Text(line)
+                                    .font(.damsoReading)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    ForEach(digest.entries) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            if let date = entry.date {
+                                Text(date)
+                                    .font(.damsoMonoCaption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 82, alignment: .leading)
+                            }
+                            Text(entry.text)
+                                .font(.damsoReading)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    Button(Loc.tr("Copy notes"), systemImage: "doc.on.doc") {
+                        copyToPasteboard(digest.plainText)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private func personMeetingsSection(_ person: LocalPersonProfile) -> some View {
+        EditorialSection(title: Loc.tr("Meeting history")) {
+            let meetings = meetings(for: person)
+            if meetings.isEmpty {
+                Text(Loc.tr("No confirmed meetings are linked to this person yet."))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(meetings) { record in
+                        Button {
+                            workspace.select(stem: record.stem)
+                            libraryDestination = .meetingLog
+                        } label: {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(meetingDisplayTitle(record))
+                                        .font(.body.weight(.medium))
+                                    Text("\(record.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(speakingSummary(for: person, in: record))")
+                                        .font(.damsoMonoCaption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Contact, aliases, merging and deletion: rarely used, and one of them
+    /// archives the profile, so they stay collapsed by default rather than
+    /// competing with the notes for attention.
+    private func personAdminSection(_ person: LocalPersonProfile) -> some View {
+        DisclosureGroup(isExpanded: $isPersonAdminExpanded) {
+            VStack(alignment: .leading, spacing: DamsoTokens.spacingLG) {
+                EditorialSection(title: Loc.tr("Contact")) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "envelope")
+                            .foregroundStyle(.secondary)
+                        TextField(Loc.tr("Email (optional)"), text: $personEmailDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 300)
+                            .onSubmit { savePersonEmail(person) }
+                        Button(Loc.tr("Save")) { savePersonEmail(person) }
+                            .buttonStyle(DamsoPillButtonStyle(rank: .secondary))
+                        if let status = personEmailStatus {
+                            Text(status)
+                                .font(.damsoMonoCaption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                EditorialSection(title: Loc.tr("Aliases")) {
+                    if person.aliases.isEmpty {
+                        Text(Loc.tr("No aliases yet. Display names captured from meetings accumulate here after you confirm a speaker."))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(person.aliases, id: \.self) { alias in
+                                HStack(spacing: 8) {
+                                    BlockChip(title: alias, block: DamsoTokens.blockCream)
+                                    Button {
+                                        Task { await workspace.removePersonAlias(name: person.name, alias: alias) }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(String(format: Loc.tr("Remove alias %@"), alias))
+                                }
+                            }
+                            Text(Loc.tr("Aliases are used for search and candidate matching. Only the primary name is shown elsewhere."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                EditorialSection(title: Loc.tr("Merge profiles")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(Loc.tr("Merge with another profile..."), systemImage: "person.2.badge.gearshape") {
+                            mergeSourcePerson = person
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(workspace.people.count < 2)
+                        Text(Loc.tr("Combines duplicate profiles: meeting history, voice profile, notes, and aliases move to the name you keep. The absorbed folder is archived first."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                EditorialSection(title: Loc.tr("Delete person")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(Loc.tr("Delete from People..."), systemImage: "trash", role: .destructive) {
+                            pendingPersonDelete = person
+                        }
+                        .buttonStyle(.bordered)
+                        Text(Loc.tr("The profile folder is archived under peoples/archive first, and the person disappears from People. Past meetings keep the name as plain text; confirming the name again brings the person back."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.top, DamsoTokens.spacing)
+        } label: {
+            Text(Loc.tr("Manage profile"))
+                .font(.damsoEyebrow)
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The summary as one plain-text block, in the order it is read on
+    /// screen. Selection can only ever grab one Text run at a time here, so
+    /// taking the whole summary elsewhere needs an explicit copy.
+    private func summaryPlainText(_ summary: StructuredSummary) -> String {
+        var lines = [summary.oneLine]
+        if !summary.keyDiscussion.isEmpty {
+            lines.append("")
+            lines.append(Loc.tr("Key points"))
+            lines.append(contentsOf: summary.keyDiscussion.map { "- \($0)" })
+        }
+        let actions = summary.actions?.map(\.displayText) ?? summary.actionItems
+        if !actions.isEmpty {
+            lines.append("")
+            lines.append(Loc.tr("Action items"))
+            lines.append(contentsOf: actions.map { "- \($0)" })
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Copying is the one thing a read-only pane must do well: selection
+    /// alone fails for structured content (a summary's bullets are separate
+    /// Text runs, and a Button label swallows the drag), so every place that
+    /// shows text the user wants elsewhere offers an explicit copy.
+    private func copyToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private func savePersonEmail(_ person: LocalPersonProfile) {
@@ -1141,10 +1287,9 @@ struct DesignReviewWindow: View {
                 AudioPlaybackPanel(player: audioPlayer, isPreparing: workspace.isPreparingPlayback)
             }
             meetingStateView(record)
-            proposedNotesView(record)
             participantsView(record)
             summaryView(record)
-            acceptedNotesView(record)
+            appliedNotesView(record)
         }
         .frame(maxWidth: 760, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1280,69 +1425,54 @@ struct DesignReviewWindow: View {
         }
     }
 
-    private func proposedNotesView(_ record: MeetingRecord) -> some View {
-        let proposed = (record.personNotes ?? []).filter { $0.status == .proposed }
+    /// Person notes are applied to profiles automatically once the summary
+    /// lands, so this section reports what was written rather than asking for
+    /// a decision. Removal is the correction path; a note still marked
+    /// pending means its write failed and the profile never changed.
+    private func appliedNotesView(_ record: MeetingRecord) -> some View {
+        let notes = record.personNotes ?? []
+        let applied = notes.filter { $0.status == .accepted }
+        let pending = notes.filter { $0.status == .proposed }
         return Group {
-            if !proposed.isEmpty {
-                EditorialSection(title: Loc.tr("Needs your decision")) {
+            if !applied.isEmpty || !pending.isEmpty {
+                EditorialSection(title: applied.isEmpty ? Loc.tr("Person notes") : Loc.tr("Added to profiles")) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(Loc.tr("These profile note suggestions came from this meeting. Nothing is saved until you decide."))
+                        // The caption must never claim a profile write that
+                        // did not happen: when every note is still pending,
+                        // saying "saved" contradicts the cards below it.
+                        Text(applied.isEmpty
+                            ? Loc.tr("These notes could not be written to the profiles. Retry each one, or leave it - the profiles stay unchanged.")
+                            : Loc.tr("What this meeting revealed about each person was saved to their profile. Remove anything that is wrong."))
                             .font(.damsoMonoCaption)
                             .foregroundStyle(.secondary)
-                        ForEach(proposed) { proposal in
+                        ForEach(applied) { note in
                             BlockCard(block: DamsoTokens.blockCream) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        BlockChip(title: proposal.name, block: DamsoTokens.blockLilac)
-                                        Text(Loc.tr("Proposed"))
-                                            .font(.damsoMonoCaption)
-                                            .opacity(0.6)
+                                    BlockChip(title: note.name, block: DamsoTokens.blockLilac)
+                                    Text(note.note)
+                                        .font(.damsoReading)
+                                    Button(Loc.tr("Remove")) {
+                                        Task { await workspace.removeAppliedPersonNote(note) }
                                     }
-                                    TextField(Loc.tr("Note"), text: Binding(
-                                        get: { editedNotes[proposal.id] ?? proposal.note },
-                                        set: { editedNotes[proposal.id] = $0 }
-                                    ), axis: .vertical)
-                                    .textFieldStyle(.plain)
-                                    HStack {
-                                        Button(Loc.tr("Add to profile")) {
-                                            Task { await workspace.acceptPersonNote(proposal, editedNote: editedNotes[proposal.id]) }
-                                        }
-                                        .buttonStyle(DamsoPillButtonStyle())
-                                        Button(Loc.tr("Decline")) {
-                                            workspace.rejectPersonNote(proposal)
-                                        }
-                                        .buttonStyle(DamsoPillButtonStyle(rank: .secondary))
-                                    }
+                                    .buttonStyle(DamsoPillButtonStyle(rank: .secondary))
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
-
-    private func acceptedNotesView(_ record: MeetingRecord) -> some View {
-        let notes = record.personNotes ?? []
-        let accepted = notes.filter { $0.status == .accepted }
-        let proposed = notes.filter { $0.status == .proposed }
-        return Group {
-            if !accepted.isEmpty || (!notes.isEmpty && proposed.isEmpty) {
-                EditorialSection(title: Loc.tr("Person notes")) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if accepted.isEmpty {
-                            Text(Loc.tr("Every proposed note was declined. Profiles stay unchanged."))
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(accepted) { note in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(DamsoTokens.success)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(note.name)
-                                        .font(.damsoMonoCaption)
-                                        .foregroundStyle(.secondary)
+                        ForEach(pending) { note in
+                            BlockCard(block: DamsoTokens.blockCream) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        BlockChip(title: note.name, block: DamsoTokens.blockLilac)
+                                        Text(Loc.tr("Not saved"))
+                                            .font(.damsoMonoCaption)
+                                            .opacity(0.6)
+                                    }
                                     Text(note.note)
+                                        .font(.damsoReading)
+                                    Button(Loc.tr("Retry saving")) {
+                                        Task { await workspace.applyPendingPersonNotes(stem: record.stem) }
+                                    }
+                                    .buttonStyle(DamsoPillButtonStyle())
                                 }
                             }
                         }
@@ -1804,6 +1934,7 @@ struct DesignReviewWindow: View {
                                     .font(.damsoMonoCaption)
                                     .foregroundStyle(.secondary)
                                 Text(display)
+                                    .font(.damsoReading)
                                     .textSelection(.enabled)
                             }
                         }
@@ -1821,16 +1952,26 @@ struct DesignReviewWindow: View {
             if let summary = record.corrections?.summary ?? record.summary {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(summary.oneLine)
-                        .font(.title3.weight(.semibold))
+                        .font(.title2.weight(.semibold))
                         .textSelection(.enabled)
                     if !summary.keyDiscussion.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(Loc.tr("Key points"))
                                 .font(.damsoEyebrow)
                                 .textCase(.uppercase)
+                            // A `Label` with an SF Symbol does not yield a
+                            // selectable text run on macOS, so these points
+                            // could be read but never copied. A plain bullet
+                            // glyph keeps the look and restores selection.
                             ForEach(summary.keyDiscussion, id: \.self) { point in
-                                Label(point, systemImage: "text.bullet")
-                                    .textSelection(.enabled)
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text("·")
+                                        .foregroundStyle(.secondary)
+                                    Text(point)
+                                        .font(.damsoReading)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
                         }
                     }
@@ -1851,6 +1992,11 @@ struct DesignReviewWindow: View {
                         .disabled(workspace.isRequestingSummaryForSelectedRecord || workspace.isApplyingSpeakerResolutionToSelectedRecord || workspace.isRecording)
                         .help(Loc.tr("Runs the summary again from the current transcript. Use this after confirming speaker names so the summary reflects them."))
                         .accessibilityIdentifier("damso.regenerate-summary")
+                        Button(Loc.tr("Copy summary"), systemImage: "doc.on.doc") {
+                            copyToPasteboard(summaryPlainText(summary))
+                        }
+                        .buttonStyle(DamsoPillButtonStyle(rank: .secondary))
+                        .accessibilityIdentifier("damso.copy-summary")
                         Text(Loc.tr("Confirm speaker names first to have them appear in the summary."))
                             .font(.damsoMonoCaption)
                             .foregroundStyle(.secondary)
@@ -1994,10 +2140,15 @@ struct DesignReviewWindow: View {
         return String(format: Loc.tr("%@ of speech"), durationString(seconds))
     }
 
-    private func personSubtitle(_ person: LocalPersonProfile) -> String {
-        var values = [String(format: Loc.tr("%d confirmed meetings"), person.meetingCount)]
+    /// Nil when there is nothing worth saying: a profile with no meetings and
+    /// no voice model used to advertise both of those absences.
+    private func personSubtitle(_ person: LocalPersonProfile) -> String? {
+        var values: [String] = []
+        if person.meetingCount > 0 {
+            values.append(String(format: Loc.tr("%d confirmed meetings"), person.meetingCount))
+        }
         if person.hasVoiceProfile { values.append(Loc.tr("voice profile ready")) }
-        return values.joined(separator: " · ")
+        return values.isEmpty ? nil : values.joined(separator: " · ")
     }
 
     private func durationString(_ seconds: Double) -> String {
@@ -3006,7 +3157,7 @@ private struct MeetingRow: View {
             .accessibilityLabel(pillTitle)
             VStack(alignment: .leading, spacing: 4) {
                 Text(meetingDisplayTitle(record))
-                    .font(.headline)
+                    .font(.damsoRowTitle)
                     .foregroundStyle(.primary)
                 Text(metaLine)
                     .font(.damsoMonoCaption)

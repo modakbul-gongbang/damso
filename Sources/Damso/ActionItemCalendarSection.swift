@@ -71,10 +71,19 @@ struct ActionItemCalendarSection: View {
                             .labelsHidden()
                     }
                     Text(action.displayText)
+                        .font(.damsoReading)
                         .textSelection(.enabled)
                 } else {
-                    Label(action.displayText, systemImage: "checkmark.circle")
-                        .textSelection(.enabled)
+                    // A Label's text is not a selectable run on macOS, so an
+                    // action item rendered that way could be read but never
+                    // copied. The glyph moves out of the text instead.
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                        Text(action.displayText)
+                            .font(.damsoReading)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             if let candidate, let failure = controller.failures[candidate.id],

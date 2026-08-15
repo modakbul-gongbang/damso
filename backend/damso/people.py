@@ -129,10 +129,13 @@ def set_person_email(peoples_directory: Path, name: str, email: str) -> None:
 
 
 def append_person_note(peoples_directory: Path, name: str, note: str, meeting_date: str | None = None) -> None:
-    """Append one user-accepted note line under the profile's Notes section.
+    """Append one note line under the profile's Notes section.
 
-    Only the caller-confirmed text is written; nothing is inferred here. The
-    natural-language body outside the Notes section stays verbatim.
+    Only the caller-supplied text is written; nothing is inferred here. The
+    natural-language body outside the Notes section stays verbatim. The app
+    applies summary notes automatically and corrects with
+    `remove_person_note`, so this stays append-only and idempotent-free: the
+    caller owns dedup.
     """
     cleaned_name = name.strip()
     cleaned_note = " ".join(note.split())
@@ -151,6 +154,47 @@ def append_person_note(peoples_directory: Path, name: str, note: str, meeting_da
     else:
         body = body.rstrip("\n") + f"\n\n## Notes\n{line}\n"
     write_profile(profile, fields, body)
+
+
+NOTE_LINE = re.compile(r"\A-\s+(?:\((?P<date>[^)]*)\)\s*)?(?P<text>.*)\Z")
+
+
+def remove_person_note(peoples_directory: Path, name: str, note: str, meeting_date: str | None = None) -> None:
+    """Remove one previously applied note line from the profile's Notes section.
+
+    Summary notes land in the profile without a confirmation step, so this is
+    the user's correction path. A single line is removed per call, matched on
+    the exact note text (and the meeting date when the line carries one), so
+    the same fact learned in a second meeting survives the correction of the
+    first. A profile whose Notes section no longer holds the line is left
+    untouched rather than treated as an error - the user's intent is already
+    satisfied.
+    """
+    cleaned_name = name.strip()
+    cleaned_note = " ".join(note.split())
+    if not cleaned_name or not cleaned_note:
+        raise ValueError("removing a person note requires a name and note text")
+    directory = peoples_directory / slugify(cleaned_name)
+    profile = directory / "profile.md"
+    if not profile.is_file():
+        raise ValueError("no profile exists for this person")
+    fields, body = read_profile(profile, cleaned_name, meeting_date or dt.date.today().isoformat())
+    head, separator, tail = body.partition("## Notes")
+    if not separator:
+        return
+    kept: list[str] = []
+    removed = False
+    for line in tail.splitlines():
+        match = NOTE_LINE.match(line.strip()) if not removed else None
+        if match and " ".join(match.group("text").split()) == cleaned_note:
+            line_date = match.group("date")
+            if meeting_date is None or line_date is None or line_date == meeting_date:
+                removed = True
+                continue
+        kept.append(line)
+    if not removed:
+        return
+    write_profile(profile, fields, head + "## Notes" + "\n".join(kept).rstrip("\n") + "\n")
 
 
 # Cosine similarity below this level is indistinguishable from noise for the

@@ -385,22 +385,6 @@
         }
       }
     },
-    "Accepted meeting notes about this person will appear here.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accepted meeting notes about this person will appear here."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "수락한 인물 메모가 여기에 표시됩니다."
-          }
-        }
-      }
-    },
     "Access token": {
       "localizations": {
         "en": {
@@ -493,22 +477,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이름 추가"
-          }
-        }
-      }
-    },
-    "Add to profile": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add to profile"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필에 추가"
           }
         }
       }
@@ -1873,22 +1841,6 @@
         }
       }
     },
-    "Decline": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Decline"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "거절"
-          }
-        }
-      }
-    },
     "Default agent": {
       "localizations": {
         "en": {
@@ -2205,22 +2157,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "서버 주소와 액세스 토큰을 입력하세요."
-          }
-        }
-      }
-    },
-    "Every proposed note was declined. Profiles stay unchanged.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every proposed note was declined. Profiles stay unchanged."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제안된 메모가 모두 거절되었습니다. 프로필은 변경되지 않습니다."
           }
         }
       }
@@ -3585,22 +3521,6 @@
         }
       }
     },
-    "Needs your decision": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needs your decision"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "확인이 필요해요"
-          }
-        }
-      }
-    },
     "New recordings from the last 7 days are imported and processed locally. Nothing is uploaded.": {
       "localizations": {
         "en": {
@@ -4065,22 +3985,6 @@
         }
       }
     },
-    "Note": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Note"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메모"
-          }
-        }
-      }
-    },
     "Notifications": {
       "localizations": {
         "en": {
@@ -4497,22 +4401,6 @@
         }
       }
     },
-    "Person notes": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Person notes"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "인물 메모"
-          }
-        }
-      }
-    },
     "Pipeline progress": {
       "localizations": {
         "en": {
@@ -4785,22 +4673,6 @@
         }
       }
     },
-    "Profile notes": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profile notes"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필 메모"
-          }
-        }
-      }
-    },
     "Profile notes are appended to the kept profile": {
       "localizations": {
         "en": {
@@ -4829,22 +4701,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "프로필은 합쳐졌지만 검색 인덱스 재구축에 실패했습니다. 파일은 온전하니 설정의 인덱스 재구축을 실행하세요."
-          }
-        }
-      }
-    },
-    "Proposed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proposed"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제안됨"
           }
         }
       }
@@ -6993,22 +6849,6 @@
         }
       }
     },
-    "The profile note was not saved. The profile file stays unchanged; retry from this proposal.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The profile note was not saved. The profile file stays unchanged; retry from this proposal."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필 메모가 저장되지 않았습니다. 프로필 파일은 그대로이며, 이 제안에서 다시 시도하세요."
-          }
-        }
-      }
-    },
     "The profiles were not merged. Both profiles are unchanged; retry after checking local storage.": {
       "localizations": {
         "en": {
@@ -7261,22 +7101,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 힌트는 선택 사항입니다. 지금 녹음은 힌트와 무관하게 즉시 시작됩니다."
-          }
-        }
-      }
-    },
-    "These profile note suggestions came from this meeting. Nothing is saved until you decide.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "These profile note suggestions came from this meeting. Nothing is saved until you decide."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 미팅에서 나온 인물 프로필 메모 제안이에요. 결정하기 전에는 아무것도 저장되지 않아요."
           }
         }
       }
@@ -8221,6 +8045,246 @@
           "stringUnit": {
             "state": "translated",
             "value": "✓ 추가됨"
+          }
+        }
+      }
+    },
+    "Added to profiles": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to profiles"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필에 저장됨"
+          }
+        }
+      }
+    },
+    "What this meeting revealed about each person was saved to their profile. Remove anything that is wrong.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What this meeting revealed about each person was saved to their profile. Remove anything that is wrong."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 미팅에서 알게 된 내용을 각 인물 프로필에 저장했어요. 틀린 내용은 지우면 됩니다."
+          }
+        }
+      }
+    },
+    "Remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
+          }
+        }
+      }
+    },
+    "Not saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 안 됨"
+          }
+        }
+      }
+    },
+    "Some profile notes were not written. Those profiles stay unchanged; generate the summary again to retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some profile notes were not written. Those profiles stay unchanged; generate the summary again to retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 인물 메모를 저장하지 못했어요. 해당 프로필은 그대로이며, 요약을 다시 생성하면 재시도합니다."
+          }
+        }
+      }
+    },
+    "The note was not removed. The profile still holds it; retry after checking local processing diagnostics.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The note was not removed. The profile still holds it; retry after checking local processing diagnostics."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모를 지우지 못했어요. 프로필에는 아직 남아 있으니 로컬 처리 진단을 확인한 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "What we know": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What we know"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알게 된 것"
+          }
+        }
+      }
+    },
+    "Notes learned from this person's meetings will appear here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes learned from this person's meetings will appear here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 인물의 미팅에서 알게 된 내용이 여기에 쌓입니다."
+          }
+        }
+      }
+    },
+    "Copy notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모 복사"
+          }
+        }
+      }
+    },
+    "Manage profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 관리"
+          }
+        }
+      }
+    },
+    "%d meetings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d meetings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미팅 %d개"
+          }
+        }
+      }
+    },
+    "Voice profile": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice profile"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 프로필"
+          }
+        }
+      }
+    },
+    "Retry saving": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry saving"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 저장"
+          }
+        }
+      }
+    },
+    "These notes could not be written to the profiles. Retry each one, or leave it - the profiles stay unchanged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These notes could not be written to the profiles. Retry each one, or leave it - the profiles stay unchanged."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메모들을 프로필에 저장하지 못했어요. 다시 시도하거나 그대로 두면 됩니다. 프로필은 바뀌지 않았어요."
+          }
+        }
+      }
+    },
+    "Person notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Person notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물 메모"
           }
         }
       }
