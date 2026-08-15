@@ -291,29 +291,25 @@ enum MeetingParticipantCaptureWiring {
             // Capture runs over the chromux live channel: any Chromium
             // browser the user pairs (Chrome/Dia/Arc; Dia confirmed live on
             // 2026-07-17, user-approved Arc inclusion). Safari and the Zoom
-            // app have no capture channel; recording proceeds without
-            // capture and the panel hints.
+            // app have no capture channel; recording proceeds without capture.
             // AppleScript-sourced tab ids ("applescript:N") detect the
             // meeting but cannot be attached over the chromux channel;
-            // recording proceeds without capture and the pairing hint shows.
+            // recording proceeds without capture. Capture is opt-in, so a
+            // missing channel is a silent no-op, never a prompt.
             guard let source = session.sources.first(where: { source in
                 guard source.app.usesChromux, let tabID = source.tabID else { return false }
                 return !tabID.hasPrefix(ChromeAppleScriptTabProbe.idPrefix)
             }),
                   let tabID = source.tabID,
-                  let directory else {
-                coordinator.updatePairingHint(true)
-                return
-            }
+                  let directory else { return }
             let controller = MeetingParticipantCaptureController(
                 provider: ChromuxParticipantProvider(tabID: tabID, service: source.service),
                 recordingDirectory: directory,
                 recordingStartedAt: session.recordingStartedAt ?? Date(),
                 source: "\(source.app.rawValue)-\(source.service.rawValue)"
             )
-            controller.onStatus = { [weak coordinator] count, healthy in
+            controller.onStatus = { [weak coordinator] count, _ in
                 coordinator?.updateParticipantCount(count)
-                coordinator?.updatePairingHint(!healthy)
             }
             active = controller
             controller.start()

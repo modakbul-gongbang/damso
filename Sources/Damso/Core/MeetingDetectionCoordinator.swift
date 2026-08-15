@@ -56,7 +56,6 @@ final class MeetingDetectionCoordinator: ObservableObject {
     var simulatedSources: [DetectedMeetingSource]?
     /// Set by the participant capture pipeline (N4) while a live count exists.
     private(set) var participantCount: Int?
-    private(set) var showPairingHint = false
     /// Participant capture wiring (T4): called on recording start/stop with
     /// the session and the record's directory.
     var onRecordingStarted: ((MeetingSessionInfo, URL?) -> Void)?
@@ -203,6 +202,10 @@ final class MeetingDetectionCoordinator: ObservableObject {
         panel.model.actions = MeetingPromptPanelActions(
             record: { [weak self] in
                 guard let self else { return }
+                // The stepper the user just set on the proposal card is the
+                // plan for this recording; hand it to the workspace before the
+                // session starts, since that is where the hint is read.
+                workspace.plannedSpeakerCount = panel.model.plannedSpeakerCount
                 Task {
                     await self.apply(self.machine.approveRecording(at: Date()))
                     self.render()
@@ -257,16 +260,14 @@ final class MeetingDetectionCoordinator: ObservableObject {
         render()
     }
 
-    func updatePairingHint(_ show: Bool) {
-        showPairingHint = show
-        render()
-    }
-
     private func render() {
         switch machine.state {
         case .idle:
             panel.render(phase: nil)
         case .prompting(let session, _):
+            // Seed the panel's stepper from the workspace so the proposal opens
+            // on the user's current plan rather than resetting it.
+            panel.model.plannedSpeakerCount = workspace.plannedSpeakerCount
             panel.render(phase: .proposal(
                 titleHint: session.representative.titleHint,
                 app: session.representative.app
@@ -274,8 +275,7 @@ final class MeetingDetectionCoordinator: ObservableObject {
         case .recording(let session), .grace(let session, _):
             panel.render(phase: .recording(
                 startedAt: session.recordingStartedAt ?? Date(),
-                participantCount: participantCount,
-                showPairingHint: showPairingHint
+                participantCount: participantCount
             ))
         case .shortRecordingConfirm(_, let duration, _):
             panel.render(phase: .shortConfirm(durationSeconds: Int(duration)))

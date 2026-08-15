@@ -36,10 +36,10 @@ struct MeetingMenuBarCard: View {
                     openWindow(id: "main")
                     openMainWindow()
                 },
-                // Only offer the plan on the manual idle card (no live
-                // detection session); a detection-driven start keeps its own
-                // fast path.
-                speakerCount: panelModel.phase == nil ? $workspace.plannedSpeakerCount : nil,
+                // Offer the plan wherever a recording has not started yet: the
+                // manual idle card and the detection proposal both end in a
+                // start, and both read the same workspace value.
+                speakerCount: workspace.isRecording ? nil : $workspace.plannedSpeakerCount,
                 participants: panelModel.phase == nil ? $workspace.plannedParticipants : nil,
                 knownPeople: workspace.people.map { $0.name }
             )
@@ -55,8 +55,7 @@ struct MeetingMenuBarCard: View {
         if workspace.isRecording {
             return .recording(
                 startedAt: workspace.recordingStartedAt ?? Date(),
-                participantCount: nil,
-                showPairingHint: false
+                participantCount: nil
             )
         }
         return nil

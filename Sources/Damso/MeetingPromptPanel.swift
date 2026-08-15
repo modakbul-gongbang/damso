@@ -7,9 +7,10 @@ enum MeetingPromptPanelPhase: Equatable {
     /// Meeting detected, recording not started. Proposals always use the same
     /// full card; [무시] hides the panel instead of changing its shape.
     case proposal(titleHint: String, app: MeetingSourceApp)
-    /// Recording in progress: elapsed time, live participant count, and the
-    /// pairing hint when chromux capture is unavailable.
-    case recording(startedAt: Date, participantCount: Int?, showPairingHint: Bool)
+    /// Recording in progress: elapsed time and the live participant count when
+    /// participant capture is paired. Capture is an opt-in add-on, so its
+    /// absence is silent here - the card never advertises it.
+    case recording(startedAt: Date, participantCount: Int?)
     /// A sub-cutoff recording ended: discard by default, keep as rescue.
     case shortConfirm(durationSeconds: Int)
 }
@@ -27,6 +28,10 @@ struct MeetingPromptPanelActions {
 @MainActor
 final class MeetingPromptPanelModel: ObservableObject {
     @Published var phase: MeetingPromptPanelPhase?
+    /// The speaker count the user plans for the meeting being proposed. The
+    /// floating panel has no workspace reference, so the coordinator seeds this
+    /// when a proposal appears and reads it back when recording is approved.
+    @Published var plannedSpeakerCount = SpeakerPlan.defaultCount
     var actions = MeetingPromptPanelActions()
 }
 
@@ -100,8 +105,12 @@ struct MeetingPromptPanelView: View {
             case .none:
                 EmptyView()
             case .some(let phase):
-                MeetingPanelCardView(phase: phase, actions: model.actions)
-                    .background(panelChrome)
+                MeetingPanelCardView(
+                    phase: phase,
+                    actions: model.actions,
+                    speakerCount: $model.plannedSpeakerCount
+                )
+                .background(panelChrome)
             }
         }
         .padding(4)
@@ -121,34 +130,32 @@ struct MeetingPromptPanelView: View {
 
 // MARK: - Shared card
 
-/// chromux pairing readout shown on the card's idle and proposal states.
-enum MeetingPanelPairingStatus: Equatable {
-    case checking
-    case paired(tabCount: Int)
-    case unpaired
-}
-
 /// The card body shared by the floating detection panel and the menu-bar
-/// popover: header with app mark and quick actions, phase-specific content,
-/// and the participant-capture pairing row. A nil phase is the menu-bar idle
-/// state offering manual recording.
+/// popover: header with app mark and quick actions, plus phase-specific
+/// content. A nil phase is the menu-bar idle state offering manual recording.
+///
+/// The card deliberately says nothing about chromux. Participant-name capture
+/// is an optional add-on that only changes whether names accompany a recording,
+/// so probing its pairing here made every idle and proposal card run a
+/// subprocess and nag about a dependency the app does not need. Setting it up
+/// lives in the capture settings screen instead.
 struct MeetingPanelCardView: View {
     var phase: MeetingPromptPanelPhase?
     var actions: MeetingPromptPanelActions
     var startDisabled = false
     var failureMessage: String?
     var onOpenApp: (() -> Void)?
-    /// Optional pre-recording speaker-count plan, shown above the manual-start
-    /// button on the menu-bar idle card. The floating detection panel leaves
-    /// this nil, so the stepper appears only where a manual recording begins.
+    /// Pre-recording speaker-count plan, shown above the start button on both
+    /// the idle card and the detection proposal. Diarization needs an oracle
+    /// count and the auto-estimator is unreliable, so the moment a recording is
+    /// offered is the moment to collect it - a detected meeting is exactly when
+    /// the user knows how many people are on the call.
     var speakerCount: Binding<Int>?
     /// Optional participant-name plan, paired with `speakerCount` on the
     /// menu-bar idle card. Names picked here prefill the speaker count and
     /// feed the transcription hint, same as the main window's plan field.
     var participants: Binding<[String]>?
     var knownPeople: [String] = []
-
-    @State private var pairing = MeetingPanelPairingStatus.checking
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -195,8 +202,8 @@ struct MeetingPanelCardView: View {
             idleBody
         case .proposal(let titleHint, let app):
             proposalBody(titleHint: titleHint, app: app)
-        case .recording(let startedAt, let participantCount, let showPairingHint):
-            recordingBody(startedAt: startedAt, participantCount: participantCount, showPairingHint: showPairingHint)
+        case .recording(let startedAt, let participantCount):
+            recordingBody(startedAt: startedAt, participantCount: participantCount)
         case .shortConfirm(let durationSeconds):
             shortConfirmBody(durationSeconds: durationSeconds)
         }
@@ -223,7 +230,6 @@ struct MeetingPanelCardView: View {
                     .foregroundStyle(DamsoTokens.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            pairingRow
         }
     }
 
@@ -245,6 +251,9 @@ struct MeetingPanelCardView: View {
                         .truncationMode(.tail)
                 }
             }
+            if let speakerCount {
+                SpeakerCountStepper(count: speakerCount)
+            }
             Button {
                 actions.record()
             } label: {
@@ -253,11 +262,10 @@ struct MeetingPanelCardView: View {
             .buttonStyle(PanelCardButtonStyle(rank: .primary))
             Button(Loc.tr("Ignore")) { actions.ignore() }
                 .buttonStyle(PanelCardButtonStyle(rank: .secondary))
-            pairingRow
         }
     }
 
-    private func recordingBody(startedAt: Date, participantCount: Int?, showPairingHint: Bool) -> some View {
+    private func recordingBody(startedAt: Date, participantCount: Int?) -> some View {
         VStack(alignment: .leading, spacing: DamsoTokens.spacingSM) {
             HStack(spacing: DamsoTokens.spacingXS) {
                 Image(systemName: "record.circle.fill")
@@ -278,16 +286,6 @@ struct MeetingPanelCardView: View {
             }
             Button(Loc.tr("Stop")) { actions.stop() }
                 .buttonStyle(PanelCardButtonStyle(rank: .critical))
-            if showPairingHint {
-                Button {
-                    actions.openCaptureSettings()
-                } label: {
-                    Label(Loc.tr("Set up participant capture"), systemImage: "arrow.right.circle")
-                        .font(.damsoEyebrow)
-                        .foregroundStyle(DamsoTokens.accent)
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 
@@ -310,56 +308,6 @@ struct MeetingPanelCardView: View {
         }
     }
 
-    /// Idle and proposal only: whether participant capture will work for the
-    /// next recording. Recording itself never depends on pairing.
-    private var pairingRow: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(pairingColor)
-                .frame(width: 6, height: 6)
-            switch pairing {
-            case .checking:
-                Text(Loc.tr("Checking chromux pairing..."))
-                    .font(.caption)
-                    .foregroundStyle(DamsoTokens.inkSecondary)
-            case .paired:
-                Text(Loc.tr("Participant capture ready"))
-                    .font(.caption)
-                    .foregroundStyle(DamsoTokens.inkSecondary)
-            case .unpaired:
-                Button(Loc.tr("Set up participant capture")) { actions.openCaptureSettings() }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(DamsoTokens.accent)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .task { await refreshPairing() }
-    }
-
-    private var pairingColor: Color {
-        switch pairing {
-        case .checking: DamsoTokens.inkSecondary
-        case .paired: DamsoTokens.success
-        case .unpaired: DamsoTokens.warning
-        }
-    }
-
-    private func refreshPairing() async {
-        // Passive status only: the card must never launch the user's Chrome
-        // just because it was opened. Listing tabs is safe once the relay is
-        // connected (chromux has nothing left to launch).
-        guard await ChromuxLivePairing.status().relayConnected else {
-            pairing = .unpaired
-            return
-        }
-        let data = await MeetingProbeSubprocess.run(arguments: ["chromux", "tabs", "--json"], timeoutSeconds: 5)
-        if let data, let tabs = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            pairing = .paired(tabCount: tabs.count)
-        } else {
-            pairing = .unpaired
-        }
-    }
 }
 
 func meetingPanelElapsedText(from start: Date, to now: Date) -> String {

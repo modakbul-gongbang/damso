@@ -699,3 +699,25 @@ struct ChromeTabProbeFallbackTests {
         #expect(await probe.tabs() == [fallbackTab])
     }
 }
+
+@MainActor
+struct MeetingPanelSpeakerPlanTests {
+    /// The detection proposal collects the speaker count, so the value it opens
+    /// on is the one most recordings will actually use. Two is the common call
+    /// and the auto-estimator is unreliable, so the default is load-bearing
+    /// rather than cosmetic - pin it here and at its source.
+    @Test
+    func proposalStepperStartsAtTwoSpeakers() {
+        #expect(SpeakerPlan.defaultCount == 2)
+        #expect(MeetingPromptPanelModel().plannedSpeakerCount == 2)
+    }
+
+    /// The floating panel has no workspace reference, so the count survives only
+    /// if the panel model carries it between the proposal and the approval.
+    @Test
+    func panelModelCarriesAnAdjustedSpeakerCount() {
+        let model = MeetingPromptPanelModel()
+        model.plannedSpeakerCount = 5
+        #expect(model.plannedSpeakerCount == 5)
+    }
+}
